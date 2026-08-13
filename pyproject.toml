@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fantasy-football"
+version = "0.1.0"
+description = "NFL/fantasy data pipeline (nflreadpy, Sleeper) feeding the Dynasty Tycoon auction draft model"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas-gbq",
+    "google-cloud-bigquery",
+    "pandas",
+    "nflreadpy",
+    "sleeper-api-wrapper",
+    "polars",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
