@@ -18,8 +18,7 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 ### Running in Colab
 
 1. Open `notebooks/nfl_data_runner.ipynb` in Colab (or `File > Open notebook > GitHub` and paste this repo's URL).
-2. Run all cells. It clones the repo fresh each run, so it always uses whatever is on `main`.
-3. If this repo is **private**, add a GitHub personal access token as a Colab secret named `GITHUB_TOKEN` (key icon in the left sidebar) before running — the clone cell picks it up automatically.
+2. Run all cells. It clones the repo fresh each run, so it always uses whatever is on `main`. The repo is public, so no token is needed.
 
 ### Tables produced
 
