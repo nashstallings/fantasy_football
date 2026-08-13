@@ -1,5 +1,7 @@
-"""Orchestrates three independent write stages: raw nflreadpy tables, the
-YPRR proxy table, and the Sleeper-based dynasty auction valuation table."""
+"""Orchestrates the pipeline's independent write stages: raw nflreadpy
+tables and the YPRR proxy table run by default via run(). The Sleeper-based
+dynasty auction valuation table (run_auction_values) is available but not
+part of the default run -- call it explicitly if you want it."""
 
 import nflreadpy as nfl
 import pandas as pd
@@ -53,5 +55,4 @@ def run_auction_values(season: int = config.PROJECTION_SEASON, write_to_bq: bool
 def run(write_to_bq: bool = True) -> dict[str, pd.DataFrame]:
     tables = run_nflreadpy_tables(write_to_bq=write_to_bq)
     tables["yprr_proxy"] = run_yprr(write_to_bq=write_to_bq)
-    tables["player_auction_values"] = run_auction_values(write_to_bq=write_to_bq)
     return tables
