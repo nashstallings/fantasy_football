@@ -18,12 +18,11 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 ### Running in Colab
 
 1. Open `notebooks/nfl_data_runner.ipynb` in Colab (or `File > Open notebook > GitHub` and paste this repo's URL).
-2. Run all cells. It clones the repo fresh each run, so it always uses whatever is on `main`.
-3. If this repo is **private**, add a GitHub personal access token as a Colab secret named `GITHUB_TOKEN` (key icon in the left sidebar) before running — the clone cell picks it up automatically.
+2. Run all cells. It clones the repo fresh each run, so it always uses whatever is on `main`. The repo is public, so no token is needed.
 
 ### Tables produced
 
-Three BigQuery datasets in `ff-python-api`:
+`nfl_data.run()` writes two BigQuery datasets in `ff-python-api` by default:
 
 | Table | Dataset | Source | Notes |
 |---|---|---|---|
@@ -33,9 +32,10 @@ Three BigQuery datasets in `ff-python-api`:
 | `nextgen_stats` | `nflreadpy` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
 | `ff_opportunity` | `nflreadpy` | nflreadpy | Weekly opportunity/target-share model output |
 | `yprr_proxy` | `dynasty` | derived (nflreadpy) | Estimated YPRR/target rate via a snap-share proxy — see `yprr.py` module docstring for methodology and caveats before trusting the numbers |
-| `player_auction_values` | `dynasty_tycoon` | Sleeper + nflreadpy | Age-adjusted, superflex-aware dynasty auction values, priced to a $3000/12-team budget |
 
-All tables are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
+All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
+
+`player_auction_values` (`dynasty_tycoon` dataset, Sleeper + nflreadpy, age-adjusted/superflex-aware dynasty auction values priced to a $3000/12-team budget) is **not** run by default — call `nfl_data.run_auction_values()` explicitly (see notebook step 6) if you want it.
 
 ### Known gotchas
 
