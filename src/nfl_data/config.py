@@ -2,11 +2,10 @@
 
 PROJECT_ID = "ff-python-api"
 
-# BigQuery datasets. Kept separate because they differ in nature: raw
-# nflreadpy pulls (replaced wholesale each run) vs. a derived analytical
-# proxy vs. a weekly-tuned dynasty valuation model.
+# BigQuery datasets. The nflreadpy pulls and the derived yprr_proxy table
+# share a dataset (all replaced wholesale each run); the weekly-tuned dynasty
+# valuation model is kept separate.
 NFLREADPY_DATASET_ID = "nflreadpy"
-YPRR_DATASET_ID = "dynasty"
 VALUATION_DATASET_ID = "dynasty_tycoon"
 
 FANTASY_POSITIONS = ["QB", "RB", "WR", "TE"]
