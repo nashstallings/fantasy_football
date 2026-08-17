@@ -22,16 +22,16 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 
 ### Tables produced
 
-`nfl_data.run()` writes two BigQuery datasets in `ff-python-api` by default:
+`nfl_data.run()` writes everything to the `nflreadpy` dataset in `ff-python-api` by default:
 
-| Table | Dataset | Source | Notes |
-|---|---|---|---|
-| `players` | `nflreadpy` | nflreadpy | Skill-position players + cross-platform IDs |
-| `player_stats` | `nflreadpy` | nflreadpy | Weekly stats, with a within-week/position PPR rank added |
-| `snap_counts` | `nflreadpy` | nflreadpy | Weekly snap share by player |
-| `nextgen_stats` | `nflreadpy` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
-| `ff_opportunity` | `nflreadpy` | nflreadpy | Weekly opportunity/target-share model output |
-| `yprr_proxy` | `dynasty` | derived (nflreadpy) | Estimated YPRR/target rate via a snap-share proxy — see `yprr.py` module docstring for methodology and caveats before trusting the numbers |
+| Table | Source | Notes |
+|---|---|---|
+| `players` | nflreadpy | Skill-position players + cross-platform IDs |
+| `player_stats` | nflreadpy | Weekly stats, with a within-week/position PPR rank added |
+| `snap_counts` | nflreadpy | Weekly snap share by player |
+| `nextgen_stats` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
+| `ff_opportunity` | nflreadpy | Weekly opportunity/target-share model output |
+| `yprr_proxy` | derived (nflreadpy) | Estimated YPRR/target rate via a snap-share proxy — see `yprr.py` module docstring for methodology and caveats before trusting the numbers |
 
 All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
 

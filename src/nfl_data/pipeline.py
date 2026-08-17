@@ -33,8 +33,8 @@ def run_yprr(seasons: list[int] | None = None, write_to_bq: bool = True) -> pd.D
     seasons = seasons or config.YPRR_SEASONS
     df = build_yprr_table(seasons=seasons, min_routes=config.YPRR_MIN_ROUTES).to_pandas()
     if write_to_bq:
-        write_tables({"yprr_proxy": df}, config.PROJECT_ID, config.YPRR_DATASET_ID)
-        set_table_description(config.PROJECT_ID, config.YPRR_DATASET_ID, "yprr_proxy", YPRR_TABLE_DESCRIPTION)
+        write_tables({"yprr_proxy": df}, config.PROJECT_ID, config.NFLREADPY_DATASET_ID)
+        set_table_description(config.PROJECT_ID, config.NFLREADPY_DATASET_ID, "yprr_proxy", YPRR_TABLE_DESCRIPTION)
     return df
 
 
