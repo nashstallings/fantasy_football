@@ -5,9 +5,26 @@ import nflreadpy as nfl
 
 from . import config
 
+# nflreadpy hardcodes the DynastyProcess player-id file behind the
+# github.com/<owner>/<repo>/raw/... redirect, which intermittently 404s
+# (GitHub rate-limits that redirect layer, and Colab's shared egress IPs get
+# hit hardest). The file itself is fine -- this is the same object served
+# directly, skipping the flaky redirect.
+FF_PLAYERIDS_URL = "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv"
+
 
 def _filter_positions(df: pd.DataFrame, position_col: str = "position") -> pd.DataFrame:
     return df[df[position_col].isin(config.FANTASY_POSITIONS)].reset_index(drop=True)
+
+
+def load_ff_playerids() -> pd.DataFrame:
+    """DynastyProcess cross-platform player IDs, falling back to the direct
+    raw.githubusercontent.com URL when nflreadpy's redirect-based fetch fails."""
+    try:
+        return nfl.load_ff_playerids().to_pandas()
+    except Exception as exc:
+        print(f"load_ff_playerids() via nflreadpy failed ({exc}); retrying direct: {FF_PLAYERIDS_URL}")
+        return pd.read_csv(FF_PLAYERIDS_URL, low_memory=False)
 
 
 def fetch_players() -> pd.DataFrame:
@@ -15,7 +32,7 @@ def fetch_players() -> pd.DataFrame:
     players = nfl.load_players().to_pandas()
     players = _filter_positions(players)
 
-    ids = nfl.load_ff_playerids().to_pandas()
+    ids = load_ff_playerids()
     merged = pd.merge(players, ids, on="gsis_id", how="left", suffixes=("", "_dup"))
     return merged.drop(columns=merged.filter(regex="_dup$").columns)
 
