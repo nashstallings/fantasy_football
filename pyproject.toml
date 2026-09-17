@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fantasy-football"
 version = "0.1.0"
-description = "NFL/fantasy data pipeline (nflreadpy, Sleeper) feeding the Dynasty Tycoon auction draft model"
+description = "NFL/fantasy data pipelines (nflreadpy, Sleeper, play-by-play enrichment) feeding Dynasty Tycoon"
 requires-python = ">=3.10"
 dependencies = [
     "pandas-gbq",
@@ -16,5 +16,21 @@ dependencies = [
     "polars",
 ]
 
+[project.optional-dependencies]
+# The pbp pipeline loads parquet via polars and writes through the BigQuery
+# client's dataframe path, which needs pyarrow and db-dtypes explicitly.
+pbp = [
+    "pyarrow",
+    "db-dtypes",
+]
+dev = [
+    "pytest",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+

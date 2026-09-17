@@ -1,0 +1,59 @@
+name: PBP Weekly Update
+
+on:
+  schedule:
+    # Tuesday 12:00 UTC, after Monday night wraps. GitHub cron is best-effort
+    # and can skip a firing entirely, so run_weekly.py rebuilds the whole
+    # current season rather than just "the new week" -- a missed run repairs
+    # itself on the next one.
+    - cron: '0 12 * * 2'
+  workflow_dispatch: {}
+
+# Two overlapping runs would race on the same MERGE target.
+concurrency:
+  group: pbp-write
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write    # required for Workload Identity Federation
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: pip install -e ".[pbp]"
+
+      # The WIF pool/provider has to be created in GCP before this can run.
+      # Until the secrets exist, skip with a notice instead of failing every
+      # Tuesday -- a job that cries wolf for weeks gets muted, and then it is
+      # muted when it finally matters.
+      - name: Check GCP configuration
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.GCP_WIF_PROVIDER }}" ] || [ -z "${{ secrets.GCP_SERVICE_ACCOUNT }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GCP_WIF_PROVIDER / GCP_SERVICE_ACCOUNT not set - skipping the update. Configure Workload Identity Federation and add the repo secrets to enable."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: google-github-actions/auth@v2
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Run weekly update
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+        run: python jobs/run_weekly.py
