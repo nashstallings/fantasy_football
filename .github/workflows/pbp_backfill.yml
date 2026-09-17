@@ -1,0 +1,50 @@
+name: PBP Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_season:
+        description: 'First season to load (snap/pbp coverage starts 1999)'
+        required: true
+        default: '2016'
+      end_season:
+        description: 'Last season to load'
+        required: true
+        default: '2025'
+
+# Shares the write lock with the weekly job -- a backfill running against the
+# same tables as a scheduled update would race on MERGE.
+concurrency:
+  group: pbp-write
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: pip install -e ".[pbp]"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Run backfill
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          python jobs/run_backfill.py \
+            --start-season ${{ inputs.start_season }} \
+            --end-season ${{ inputs.end_season }}
