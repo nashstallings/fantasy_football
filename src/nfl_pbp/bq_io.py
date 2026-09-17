@@ -55,6 +55,28 @@ def _staging_id(bq: bigquery.Client, dataset_id: str, table: str) -> str:
     return f"{bq.project}.{dataset_id}._stg_{table}"
 
 
+def build_merge_sql(target: str, staging: str, cols: list[str], key: list[str]) -> str:
+    """Build the upsert statement.
+
+    Every identifier is backtick-quoted. Play-by-play has a column literally
+    named `desc`, which is a BigQuery reserved word -- unquoted it produces
+    `Syntax error: Expected "(" but got keyword DESC`, pointing at a character
+    offset rather than at the column. Quoting unconditionally also means a new
+    nflverse column can never reintroduce the problem.
+    """
+    on = " AND ".join(f"T.`{k}` = S.`{k}`" for k in key)
+    updates = ", ".join(f"`{c}` = S.`{c}`" for c in cols if c not in key)
+    insert_cols = ", ".join(f"`{c}`" for c in cols)
+    insert_vals = ", ".join(f"S.`{c}`" for c in cols)
+    return f"""
+        MERGE `{target}` T
+        USING `{staging}` S
+        ON {on}
+        WHEN MATCHED THEN UPDATE SET {updates}
+        WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
+    """
+
+
 def load_staging(
     bq: bigquery.Client, df: pl.DataFrame, dataset_id: str, table: str
 ) -> str:
@@ -106,28 +128,16 @@ def merge_table(
     if not exists:
         ddl_extra = ""
         if partition_field:
-            ddl_extra += f"\nPARTITION BY {partition_field}"
+            ddl_extra += f"\nPARTITION BY `{partition_field}`"
         if cluster_fields:
-            ddl_extra += f"\nCLUSTER BY {', '.join(cluster_fields)}"
+            ddl_extra += "\nCLUSTER BY " + ", ".join(f"`{c}`" for c in cluster_fields)
         bq.query(
             f"CREATE TABLE `{target}`{ddl_extra} AS SELECT * FROM `{staging}`"
         ).result()
         print(f"  created {dataset_id}.{table}")
     else:
         cols = [f.name for f in bq.get_table(staging).schema]
-        on = " AND ".join(f"T.{k} = S.{k}" for k in key)
-        updates = ", ".join(f"{c} = S.{c}" for c in cols if c not in key)
-        insert_cols = ", ".join(cols)
-        insert_vals = ", ".join(f"S.{c}" for c in cols)
-        bq.query(
-            f"""
-            MERGE `{target}` T
-            USING `{staging}` S
-            ON {on}
-            WHEN MATCHED THEN UPDATE SET {updates}
-            WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
-            """
-        ).result()
+        bq.query(build_merge_sql(target, staging, cols, key)).result()
 
     bq.delete_table(staging, not_found_ok=True)
     n = _row_count(bq, dataset_id, table)
