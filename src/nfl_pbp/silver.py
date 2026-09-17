@@ -15,6 +15,12 @@ from . import config
 
 # Columns this layer adds, in output order.
 ENRICHED_COLUMNS = [
+    "offense_personnel",
+    "personnel_grouping",
+    "offense_formation",
+    "defense_personnel",
+    "defenders_in_box",
+    "number_of_pass_rushers",
     "garbage_time",
     "situation_bucket",
     "true_pressure",
@@ -22,9 +28,95 @@ ENRICHED_COLUMNS = [
     "success_strict",
 ]
 
+# Columns lifted from nflverse participation, beyond the personnel strings.
+# Typed explicitly: an untyped null literal comes back as polars Null, and
+# `.str.extract` on a Null column raises rather than returning nulls -- which
+# is exactly the path the current season takes.
+_PARTICIPATION_COLUMNS = {
+    "offense_personnel": pl.Utf8,
+    "defense_personnel": pl.Utf8,
+    "offense_formation": pl.Utf8,
+    "defenders_in_box": pl.Int64,
+    "number_of_pass_rushers": pl.Int64,
+    "was_pressure": pl.Boolean,
+}
+
 
 def _has(df: pl.DataFrame, column: str) -> bool:
     return column in df.columns
+
+
+def add_participation(
+    df: pl.DataFrame, participation: pl.DataFrame | None = None
+) -> pl.DataFrame:
+    """Join per-play personnel and charting fields from nflverse participation.
+
+    This is where `11 personnel` comes from. `offense_personnel` is a full
+    positional string -- "1 C, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 3 WR" -- and
+    `personnel_grouping` reduces it to the conventional two digits: backs, then
+    tight ends. A fullback counts as a back, which is what makes "21 personnel"
+    mean two backs and one tight end.
+
+    Coverage is the thing to watch. Participation runs 2016-2025 and is fully
+    populated only from 2023; the current season is not published at all, so
+    these columns are null for it until nflverse catches up. Every column here
+    is therefore optional, and a missing participation frame leaves them null
+    rather than failing the run.
+    """
+    def null_cols(frame: pl.DataFrame) -> list[pl.Expr]:
+        return [
+            pl.lit(None, dtype=dtype).alias(name)
+            for name, dtype in _PARTICIPATION_COLUMNS.items()
+            if name not in frame.columns
+        ]
+
+    if participation is None or participation.height == 0:
+        return _add_personnel_grouping(df.with_columns(null_cols(df)))
+
+    key_game = "nflverse_game_id" if "nflverse_game_id" in participation.columns else "game_id"
+    available = [c for c in _PARTICIPATION_COLUMNS if c in participation.columns]
+
+    slim = (
+        participation.select(
+            pl.col(key_game).alias("game_id"),
+            pl.col("play_id").cast(pl.Int64).alias("_join_play_id"),
+            *[pl.col(c) for c in available],
+        )
+        .filter(pl.col("game_id").is_not_null())
+        .unique(subset=["game_id", "_join_play_id"])
+    )
+
+    out = (
+        df.with_columns(pl.col("play_id").cast(pl.Int64).alias("_join_play_id"))
+        .join(slim, on=["game_id", "_join_play_id"], how="left")
+        .drop("_join_play_id")
+    )
+    return _add_personnel_grouping(out.with_columns(null_cols(out)))
+
+
+def _add_personnel_grouping(df: pl.DataFrame) -> pl.DataFrame:
+    """Reduce the positional string to the conventional two-digit grouping.
+
+    The regexes anchor on the full position token: `(\\d+) TE` cannot match the
+    "2 T," that precedes it, which is the tackle count, not tight ends.
+    """
+    def count_of(position: str) -> pl.Expr:
+        return (
+            pl.col("offense_personnel")
+            .str.extract(rf"(\d+) {position}(?:,|$)", 1)
+            .cast(pl.Int64, strict=False)
+            .fill_null(0)
+        )
+
+    backs = count_of("RB") + count_of("FB")
+    tight_ends = count_of("TE")
+
+    grouping = (
+        pl.when(pl.col("offense_personnel").is_null())
+        .then(None)
+        .otherwise(backs.cast(pl.Utf8) + tight_ends.cast(pl.Utf8))
+    )
+    return df.with_columns(grouping.alias("personnel_grouping"))
 
 
 def add_garbage_time(df: pl.DataFrame) -> pl.DataFrame:
@@ -104,22 +196,24 @@ def add_situation_bucket(df: pl.DataFrame) -> pl.DataFrame:
 def add_true_pressure(df: pl.DataFrame, ftn: pl.DataFrame | None = None) -> pl.DataFrame:
     """Flag dropbacks where the quarterback was disrupted.
 
-    IMPORTANT -- there is no pressure field in free nflverse data. `was_pressure`
-    does not exist in play-by-play (372 columns checked) and does not exist in
-    FTN charting either; it is a PFF product. So this is a proxy built from what
-    is actually available:
+    Prefers the real thing. nflverse participation carries a charted
+    `was_pressure` per play (2016-2025, effectively complete from 2023), and
+    where it is present it is used directly -- no proxy involved.
 
-        qb_hit OR sack                          (always)
-        OR is_qb_out_of_pocket OR is_throw_away  (FTN, 2022+ only)
+    The proxy remains for plays participation does not cover, most importantly
+    the current season, which nflverse does not publish until later:
 
-    `qb_hit` alone undercounts badly -- it only fires when the QB is actually
-    hit, missing every play he was flushed or forced to dump off.
+        qb_hit OR sack                           (always available)
+        OR is_qb_out_of_pocket OR is_throw_away   (FTN, 2022+)
 
-    Because the FTN signals only exist from 2022, the definition is era-
-    dependent, and a naive backfill would show a discontinuity at 2022 that is
-    purely definitional. `true_pressure_method` records which definition
-    produced each row so downstream code can avoid comparing across the
-    boundary (or filter to one method).
+    `qb_hit` alone undercounts badly -- it only fires when the quarterback is
+    actually hit, missing every play he was flushed or forced to dump off.
+
+    The three definitions do not agree, so `true_pressure_method` records which
+    one produced each row (`participation`, `pbp_plus_ftn`, or `pbp_only`).
+    Filter on it before comparing pressure rates across seasons; a chart that
+    mixes charted pressure with the pbp-only proxy shows a step change that is
+    entirely definitional.
 
     The flag is null on non-dropbacks rather than False, so pressure rates
     computed as a mean aren't diluted by run plays.
@@ -157,6 +251,16 @@ def add_true_pressure(df: pl.DataFrame, ftn: pl.DataFrame | None = None) -> pl.D
             base = base | ftn_signal
             method = pl.when(matched).then(pl.lit("pbp_plus_ftn")).otherwise(pl.lit("pbp_only"))
 
+    # Charted pressure wins wherever participation covers the play.
+    if "was_pressure" in out.columns:
+        charted = pl.col("was_pressure").cast(pl.Boolean, strict=False)
+        base = pl.when(charted.is_not_null()).then(charted).otherwise(base)
+        method = (
+            pl.when(charted.is_not_null())
+            .then(pl.lit("participation"))
+            .otherwise(method)
+        )
+
     is_dropback = pl.col("qb_dropback").fill_null(0) == 1
 
     # Materialize before dropping the joined FTN columns -- `base` and `method`
@@ -191,9 +295,18 @@ def add_success_strict(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(flag.alias("success_strict"))
 
 
-def enrich(df: pl.DataFrame, ftn: pl.DataFrame | None = None) -> pl.DataFrame:
-    """Apply the full silver transform. Grain is preserved."""
-    out = add_garbage_time(df)
+def enrich(
+    df: pl.DataFrame,
+    ftn: pl.DataFrame | None = None,
+    participation: pl.DataFrame | None = None,
+) -> pl.DataFrame:
+    """Apply the full silver transform. Grain is preserved.
+
+    Participation is joined first so `add_true_pressure` can prefer its charted
+    `was_pressure` over the proxy.
+    """
+    out = add_participation(df, participation)
+    out = add_garbage_time(out)
     out = add_situation_bucket(out)
     out = add_true_pressure(out, ftn=ftn)
     out = add_success_strict(out)

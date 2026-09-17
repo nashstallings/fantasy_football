@@ -38,6 +38,25 @@ def load_ftn(seasons: int | list[int]) -> pl.DataFrame | None:
         return None
 
 
+def load_participation(seasons: int | list[int]) -> pl.DataFrame | None:
+    """Per-play personnel and charting (including a real `was_pressure`), or
+    None when the seasons requested aren't published.
+
+    Participation covers 2016-2025 and is fully populated from 2023. The
+    current season is NOT published until after the fact, so the weekly job
+    will get None here for most of the year -- that is expected, not an error.
+    The personnel columns come back null and `true_pressure` falls back to its
+    proxy.
+    """
+    wanted = [seasons] if isinstance(seasons, int) else list(seasons)
+    try:
+        return nfl.load_participation(seasons=wanted)
+    except Exception as exc:  # noqa: BLE001 - enhancement only, never fatal
+        print(f"  participation unavailable for {wanted} ({exc}); "
+              f"personnel columns will be null and true_pressure falls back to the proxy")
+        return None
+
+
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
     """Coerce the handful of columns whose nflverse types don't survive contact
     with BigQuery.
