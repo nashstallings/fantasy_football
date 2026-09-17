@@ -66,7 +66,7 @@ columns, and rolls it up for Dynasty Tycoon's player tabs and the planned
 |---|---|---|
 | `pbp_bronze.plays` | play | Typed passthrough of `load_pbp()`. Partitioned by `game_date`, clustered by season/week/posteam. |
 | `pbp_silver.plays_enriched` | play | Same grain + `garbage_time`, `situation_bucket`, `true_pressure`, `success_strict`. |
-| `pbp_gold.player_weekly_efficiency` | player × week | Target/air-yards share, WOPR, EPA/play, success rate, snap share. |
+| `pbp_gold.player_weekly_efficiency` | player × week | `player_name`, target/air-yards share, WOPR, EPA/play, success rate, snap share. |
 | `pbp_gold.team_unit_weekly` | team × week × side | EPA/play, success, explosive and pressure rates, red zone. **`nfl-matchup-notes` queries this.** |
 | `pbp_gold.team_matchup_deltas` | view | Z-scores vs. league. A view, so it retunes without a backfill. |
 

@@ -29,7 +29,9 @@ def _scrimmage(plays: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 def player_weekly_efficiency(
-    plays: pl.DataFrame, snaps: pl.DataFrame | None = None
+    plays: pl.DataFrame,
+    snaps: pl.DataFrame | None = None,
+    players: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """One row per player / season / week / team.
 
@@ -42,6 +44,12 @@ def player_weekly_efficiency(
     `snap_share` requires snap counts, which do not exist in play-by-play. Pass
     the `nflreadpy.snap_counts` table (already keyed to gsis_id via the players
     crosswalk) to populate it; omit it and the column comes back null.
+
+    `player_name` prefers the full display name from `players`
+    (`nflreadpy.load_players()`), falling back to play-by-play's own name field,
+    which is abbreviated to an initial and surname ("T.McBride"). That is
+    readable enough to identify a row but collides between players who share a
+    surname and first initial, so the full name is worth the join.
     """
     sp = _scrimmage(plays)
 
@@ -50,6 +58,7 @@ def player_weekly_efficiency(
     receiving = sp.filter(pl.col("receiver_player_id").is_not_null()).select(
         pl.col("season"), pl.col("week"), pl.col("posteam").alias("team"),
         pl.col("receiver_player_id").alias("player_id"),
+        pl.col("receiver_player_name").alias("name_pbp"),
         pl.col("epa"), pl.col("success_strict"), pl.col("garbage_time"),
         pl.col("yards_gained"), pl.col("air_yards").fill_null(0).alias("air_yards"),
         pl.col("touchdown").fill_null(0).alias("touchdown"),
@@ -60,6 +69,7 @@ def player_weekly_efficiency(
     rushing = sp.filter(pl.col("rusher_player_id").is_not_null()).select(
         pl.col("season"), pl.col("week"), pl.col("posteam").alias("team"),
         pl.col("rusher_player_id").alias("player_id"),
+        pl.col("rusher_player_name").alias("name_pbp"),
         pl.col("epa"), pl.col("success_strict"), pl.col("garbage_time"),
         pl.col("yards_gained"), pl.lit(0.0).alias("air_yards"),
         pl.col("touchdown").fill_null(0).alias("touchdown"),
@@ -72,6 +82,7 @@ def player_weekly_efficiency(
     clean = ~pl.col("garbage_time").fill_null(False)
 
     per_player = long.group_by(["season", "week", "team", "player_id"]).agg(
+        pl.col("name_pbp").drop_nulls().first().alias("name_pbp"),
         pl.len().alias("plays"),
         pl.col("target").sum().alias("targets"),
         pl.col("carry").sum().alias("carries"),
@@ -111,12 +122,47 @@ def player_weekly_efficiency(
          + 0.7 * pl.col("air_yards_share").fill_null(0)).alias("wopr")
     )
 
+    out = _attach_player_name(out, players)
+
     if snaps is not None and snaps.height > 0:
         out = _attach_snap_share(out, snaps)
     else:
         out = out.with_columns(pl.lit(None, dtype=pl.Float64).alias("snap_share"))
 
-    return out.sort(["season", "week", "team", "player_id"])
+    cols = out.columns
+    ordered = ["season", "week", "team", "player_id", "player_name"]
+    return out.select(ordered + [c for c in cols if c not in ordered]).sort(
+        ["season", "week", "team", "player_id"]
+    )
+
+
+def _attach_player_name(df: pl.DataFrame, players: pl.DataFrame | None) -> pl.DataFrame:
+    """Resolve `player_name`, preferring the full display name over the
+    abbreviated one play-by-play carries."""
+    full = None
+    if players is not None and players.height > 0:
+        name_col = next(
+            (c for c in ("display_name", "full_name", "player_name") if c in players.columns),
+            None,
+        )
+        if name_col and "gsis_id" in players.columns:
+            full = (
+                players.select(
+                    pl.col("gsis_id").alias("player_id"),
+                    pl.col(name_col).alias("_full_name"),
+                )
+                .filter(pl.col("player_id").is_not_null())
+                .unique(subset=["player_id"])
+            )
+
+    if full is not None:
+        df = df.join(full, on="player_id", how="left").with_columns(
+            pl.coalesce([pl.col("_full_name"), pl.col("name_pbp")]).alias("player_name")
+        ).drop("_full_name")
+    else:
+        df = df.with_columns(pl.col("name_pbp").alias("player_name"))
+
+    return df.drop("name_pbp")
 
 
 def _attach_snap_share(df: pl.DataFrame, snaps: pl.DataFrame) -> pl.DataFrame:

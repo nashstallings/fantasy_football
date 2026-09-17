@@ -13,7 +13,21 @@ from __future__ import annotations
 import argparse
 import sys
 
+import nflreadpy as nfl
+
 from nfl_pbp import bq_io, bronze, config, gold, silver
+
+
+def _load_roster():
+    """Player table for the gsis_id -> full name lookup. Non-fatal: a failure
+    here costs the full names, not the run -- player_name falls back to
+    play-by-play's abbreviated form."""
+    try:
+        return nfl.load_players()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  players lookup unavailable ({exc}); "
+              f"player_name falls back to the abbreviated pbp name")
+        return None
 
 
 def run(start_season: int, end_season: int, project_id: str | None = None) -> int:
@@ -53,9 +67,12 @@ def run(start_season: int, end_season: int, project_id: str | None = None) -> in
 
 def rebuild_gold_for(bq, enriched, season: int) -> None:
     """Recompute both gold tables for one season and merge them in."""
-    players = gold.player_weekly_efficiency(enriched)
+    # nflreadpy caches within the process, so this is one fetch across seasons.
+    roster = _load_roster()
+
+    player_weekly = gold.player_weekly_efficiency(enriched, players=roster)
     bq_io.merge_table(
-        bq, players, config.GOLD_DATASET, config.GOLD_PLAYER_WEEKLY,
+        bq, player_weekly, config.GOLD_DATASET, config.GOLD_PLAYER_WEEKLY,
         key=["season", "week", "team", "player_id"],
     )
 

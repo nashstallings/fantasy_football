@@ -55,6 +55,41 @@ def _staging_id(bq: bigquery.Client, dataset_id: str, table: str) -> str:
     return f"{bq.project}.{dataset_id}._stg_{table}"
 
 
+# BigQuery's schema API reports legacy type names; DDL wants the standard ones.
+_DDL_TYPE = {"INTEGER": "INT64", "FLOAT": "FLOAT64", "BOOLEAN": "BOOL"}
+
+
+def add_missing_columns(bq: bigquery.Client, target: str, staging: str) -> list[str]:
+    """Add columns that exist in staging but not yet in the target table.
+
+    Without this, any new column is a hard failure: MERGE reports
+    `Name <col> not found inside T` and the run dies. That happens whenever a
+    rollup gains a field, and also on its own schedule -- nflverse adds
+    play-by-play columns between seasons, which would break a weekly run with
+    no code change on our side.
+
+    Columns that disappear are safe and left alone: MERGE only names staging
+    columns, so a dropped one keeps its existing value on UPDATE and lands NULL
+    on INSERT.
+    """
+    existing = {f.name for f in bq.get_table(target).schema}
+    added = []
+    for field in bq.get_table(staging).schema:
+        if field.name in existing:
+            continue
+        if field.field_type in ("RECORD", "STRUCT"):
+            print(f"    skipping new nested column {field.name} ({field.field_type})")
+            continue
+        ddl_type = _DDL_TYPE.get(field.field_type, field.field_type)
+        bq.query(
+            f"ALTER TABLE `{target}` ADD COLUMN `{field.name}` {ddl_type}"
+        ).result()
+        added.append(field.name)
+    if added:
+        print(f"    added {len(added)} new column(s): {', '.join(added)}")
+    return added
+
+
 def build_merge_sql(target: str, staging: str, cols: list[str], key: list[str]) -> str:
     """Build the upsert statement.
 
@@ -136,6 +171,7 @@ def merge_table(
         ).result()
         print(f"  created {dataset_id}.{table}")
     else:
+        add_missing_columns(bq, target, staging)
         cols = [f.name for f in bq.get_table(staging).schema]
         bq.query(build_merge_sql(target, staging, cols, key)).result()
 
