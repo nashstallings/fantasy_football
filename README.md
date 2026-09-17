@@ -84,6 +84,16 @@ In CI both jobs authenticate through Workload Identity Federation — there is n
 service-account key anywhere in this repo. Requires repo secrets
 `GCP_PROJECT_ID`, `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT`.
 
+First-time setup is one command:
+
+```bash
+./scripts/setup_wif.sh
+```
+
+See [docs/workload-identity-federation.md](docs/workload-identity-federation.md)
+for what it creates and the two things that are easy to get wrong. Until the
+secrets exist the weekly job skips with a notice instead of failing.
+
 ### Gotchas
 
 - **`true_pressure` is a proxy, and its definition changes at 2022.** There is no
