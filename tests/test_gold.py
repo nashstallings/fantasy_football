@@ -30,6 +30,8 @@ def make_enriched() -> pl.DataFrame:
         "true_pressure_method": ["pbp_only", "pbp_only", None, "pbp_only", None, "pbp_only"],
         "receiver_player_id": ["r1", "r1", None, "r2", None, "r3"],
         "rusher_player_id": [None, None, "b1", None, "b2", None],
+        "receiver_player_name": ["A.One", "A.One", None, "B.Two", None, "C.Three"],
+        "rusher_player_name": [None, None, "D.Back", None, "E.Back", None],
     })
 
 
@@ -139,3 +141,47 @@ def test_snap_share_joins_when_provided():
     out = gold.player_weekly_efficiency(make_enriched(), snaps=snaps)
     r1 = out.filter(pl.col("player_id") == "r1")
     assert abs(r1["snap_share"][0] - 0.87) < 1e-9
+
+
+# --------------------------------------------------------------------------
+# player_name
+# --------------------------------------------------------------------------
+
+def test_player_name_prefers_full_display_name():
+    roster = pl.DataFrame({
+        "gsis_id": ["r1", "b1"],
+        "display_name": ["Alpha One", "Delta Back"],
+    })
+    out = gold.player_weekly_efficiency(make_enriched(), players=roster)
+    assert out.filter(pl.col("player_id") == "r1")["player_name"][0] == "Alpha One"
+    assert out.filter(pl.col("player_id") == "b1")["player_name"][0] == "Delta Back"
+
+
+def test_player_name_falls_back_to_pbp_abbreviation():
+    """An id missing from the roster still gets a readable name rather than a
+    null -- pbp's own abbreviated form."""
+    roster = pl.DataFrame({"gsis_id": ["r1"], "display_name": ["Alpha One"]})
+    out = gold.player_weekly_efficiency(make_enriched(), players=roster)
+    assert out.filter(pl.col("player_id") == "r2")["player_name"][0] == "B.Two"
+
+
+def test_player_name_without_roster_uses_pbp_names():
+    out = gold.player_weekly_efficiency(make_enriched(), players=None)
+    assert out.filter(pl.col("player_id") == "r1")["player_name"][0] == "A.One"
+    assert out["player_name"].null_count() == 0
+
+
+def test_player_name_is_a_leading_column():
+    out = gold.player_weekly_efficiency(make_enriched())
+    assert out.columns[:5] == ["season", "week", "team", "player_id", "player_name"]
+
+
+def test_roster_join_does_not_change_grain():
+    """A duplicated gsis_id in the roster must not fan rows out."""
+    roster = pl.DataFrame({
+        "gsis_id": ["r1", "r1"],
+        "display_name": ["Alpha One", "Alpha One (dup)"],
+    })
+    base = gold.player_weekly_efficiency(make_enriched(), players=None)
+    out = gold.player_weekly_efficiency(make_enriched(), players=roster)
+    assert out.height == base.height
