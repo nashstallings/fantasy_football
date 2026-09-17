@@ -8,6 +8,8 @@ Actions UI and a re-run must not duplicate rows.
 
 from __future__ import annotations
 
+import db_dtypes  # noqa: F401  -- registers the pandas "dbdate" dtype
+import pandas as pd
 import polars as pl
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
@@ -17,6 +19,26 @@ from . import config
 
 def client(project_id: str | None = None) -> bigquery.Client:
     return bigquery.Client(project=project_id or config.PROJECT_ID)
+
+
+def to_bq_dataframe(df: pl.DataFrame) -> pd.DataFrame:
+    """polars -> pandas, keeping DATE columns as DATE.
+
+    `.to_pandas()` turns a polars Date into pandas `datetime64`, which
+    BigQuery's schema autodetection then types as DATETIME. That silently
+    breaks `PARTITION BY game_date`: BigQuery only accepts a real DATE column
+    there (or an explicit DATE()/TRUNC expression), so the staging load
+    succeeds and the CREATE TABLE fails afterwards with a 400 that never
+    mentions dataframe dtypes.
+
+    db-dtypes' `dbdate` round-trips to a true BigQuery DATE, so the column
+    lands as the type bronze already cast it to.
+    """
+    pdf = df.to_pandas()
+    for name, dtype in df.schema.items():
+        if dtype == pl.Date:
+            pdf[name] = pdf[name].astype("dbdate")
+    return pdf
 
 
 def ensure_dataset(bq: bigquery.Client, dataset_id: str) -> None:
@@ -39,7 +61,7 @@ def load_staging(
     """Drop the frame into a throwaway table so MERGE has something to read."""
     staging = _staging_id(bq, dataset_id, table)
     job = bq.load_table_from_dataframe(
-        df.to_pandas(),
+        to_bq_dataframe(df),
         staging,
         job_config=bigquery.LoadJobConfig(
             write_disposition="WRITE_TRUNCATE", autodetect=True
