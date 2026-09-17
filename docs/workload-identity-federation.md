@@ -12,15 +12,40 @@ each step, if the script fails partway, or if you'd rather use the console.
 
 ## 0. Before you start
 
-### Install and authenticate
+### Where to run this
+
+**Google Cloud Shell is the easy answer.** It's a browser terminal with `gcloud`
+and `bq` already installed and already authenticated as your Google account — no
+SDK install, no `gcloud auth login`.
+
+1. Open <https://console.cloud.google.com/>
+2. Click the terminal icon (**Activate Cloud Shell**) in the top-right toolbar
+3. Run:
 
 ```bash
-# https://cloud.google.com/sdk/docs/install
-gcloud auth login
 gcloud config set project ff-python-api
+git clone https://github.com/nashstallings/fantasy_football
+cd fantasy_football
+./scripts/setup_wif.sh
 ```
 
-`bq` ships with the gcloud SDK, so you get both.
+The repo is public, so the clone needs no credentials. That covers steps 1–7.
+
+Alternatives, in rough order of hassle:
+
+| Where | Notes |
+|---|---|
+| **Cloud Shell** | Recommended. Pre-authenticated, nothing to install. Sessions are ephemeral, which doesn't matter here — the state lives in GCP, not the shell. |
+| **Local terminal** | Fine if you already have the SDK. Otherwise install from <https://cloud.google.com/sdk/docs/install>, then `gcloud auth login`. |
+| **Colab** | Not recommended. `auth.authenticate_user()` grants data access, not the IAM-admin scopes these commands need, and you'll hit confusing permission errors. |
+
+Which step runs where:
+
+- **Steps 1–7 (GCP)** — Cloud Shell or a local terminal
+- **Step 8 (secrets)** — the GitHub web UI is simplest; `gh` works if you'd
+  rather stay in the terminal, but it needs its own `gh auth login`, separate
+  from your GCP login
+- **Step 9 (verify)** — the Actions tab in the browser, or `gh` if authenticated
 
 ### Confirm you have the right permissions
 

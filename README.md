@@ -84,9 +84,12 @@ In CI both jobs authenticate through Workload Identity Federation — there is n
 service-account key anywhere in this repo. Requires repo secrets
 `GCP_PROJECT_ID`, `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT`.
 
-First-time setup is one command:
+First-time setup is one command, easiest from
+[Google Cloud Shell](https://console.cloud.google.com/) (gcloud and bq are
+preinstalled and already authenticated):
 
 ```bash
+gcloud config set project ff-python-api
 ./scripts/setup_wif.sh
 ```
 
