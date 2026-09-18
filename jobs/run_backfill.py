@@ -50,7 +50,11 @@ def run(start_season: int, end_season: int, project_id: str | None = None) -> in
             cluster_fields=config.CLUSTER_FIELDS,
         )
 
-        enriched = silver.enrich(plays, ftn=bronze.load_ftn(season))
+        enriched = silver.enrich(
+            plays,
+            ftn=bronze.load_ftn(season),
+            participation=bronze.load_participation(season),
+        )
         bq_io.merge_table(
             bq, enriched, config.SILVER_DATASET, config.SILVER_PLAYS,
             key=config.PLAY_KEY,

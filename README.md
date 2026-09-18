@@ -65,7 +65,7 @@ columns, and rolls it up for Dynasty Tycoon's player tabs and the planned
 | Table | Grain | Notes |
 |---|---|---|
 | `pbp_bronze.plays` | play | Typed passthrough of `load_pbp()`. Partitioned by `game_date`, clustered by season/week/posteam. |
-| `pbp_silver.plays_enriched` | play | Same grain + `garbage_time`, `situation_bucket`, `true_pressure`, `success_strict`. |
+| `pbp_silver.plays_enriched` | play | Same grain + `garbage_time`, `situation_bucket`, `true_pressure`, `success_strict`, and participation fields (`personnel_grouping`, `offense_formation`, `defenders_in_box`). |
 | `pbp_gold.player_weekly_efficiency` | player × week | `player_name`, target/air-yards share, WOPR, EPA/play, success rate, snap share. |
 | `pbp_gold.team_unit_weekly` | team × week × side | EPA/play, success, explosive and pressure rates, red zone. **`nfl-matchup-notes` queries this.** |
 | `pbp_gold.team_matchup_deltas` | view | Z-scores vs. league. A view, so it retunes without a backfill. |
@@ -99,14 +99,24 @@ secrets exist the weekly job skips with a notice instead of failing.
 
 ### Gotchas
 
-- **`true_pressure` is a proxy, and its definition changes at 2022.** There is no
-  pressure field in free nflverse data — `was_pressure` exists in neither
-  play-by-play nor FTN charting; it's a PFF product. This ORs `qb_hit`/`sack`
-  with FTN's `is_qb_out_of_pocket`/`is_throw_away`, which only exist from 2022.
-  Measured on 2024, that is the difference between a 14.6% and a 30.7% pressure
-  rate, so a backfill shows a step change at 2022 that is purely definitional.
-  Every row carries `true_pressure_method` (`pbp_only` / `pbp_plus_ftn`) — filter
-  on it before comparing across that boundary.
+- **`true_pressure` mixes a real measurement with a proxy — check the method.**
+  nflverse participation carries a charted `was_pressure` per play (2016–2025,
+  effectively complete from 2023), and it is used directly wherever present. The
+  proxy (`qb_hit`/`sack`, plus FTN's `is_qb_out_of_pocket`/`is_throw_away` from
+  2022) only fills plays participation doesn't cover — most importantly the
+  **current season, which nflverse does not publish until after the fact**.
+  The definitions disagree: on 2025 the charted rate is 29.7% against the
+  proxy's 32.6%, and on 2024 the pbp-only proxy gives 14.6% against 30.7% with
+  FTN. Every row carries `true_pressure_method` (`participation` /
+  `pbp_plus_ftn` / `pbp_only`); filter on it before comparing pressure across
+  seasons, or you will read a definitional step change as a real one.
+- **Personnel is null for the current season.** `offense_personnel`,
+  `personnel_grouping`, `offense_formation`, `defenders_in_box` and
+  `number_of_pass_rushers` all come from participation, so they cover 2016–2025
+  (fully from 2023) and are null until nflverse publishes the season in
+  progress. `personnel_grouping` is the conventional two digits — backs, then
+  tight ends, with a fullback counting as a back — so `11` is 1 RB/1 TE/3 WR.
+  On 2025 that resolves to 58.8% `11`, 24.1% `12`, 7.0% `21`.
 - **The weekly job rebuilds the whole current season**, not just the new week.
   GitHub cron is best-effort and skips firings; rebuilding means a missed week
   self-heals, and late stat corrections get picked up.

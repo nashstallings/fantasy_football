@@ -198,3 +198,106 @@ def test_enrich_preserves_grain_and_adds_every_column():
     for col in silver.ENRICHED_COLUMNS:
         assert col in out.columns
     assert out.select(["game_id", "play_id"]).unique().height == out.height
+
+
+# --------------------------------------------------------------------------
+# participation: personnel + charted pressure
+# --------------------------------------------------------------------------
+
+def make_participation(**overrides) -> pl.DataFrame:
+    base = {
+        "nflverse_game_id": ["g1"],
+        "play_id": [1],
+        "offense_personnel": ["1 C, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 3 WR"],
+        "defense_personnel": ["4 DL, 3 LB, 4 DB"],
+        "offense_formation": ["SHOTGUN"],
+        "defenders_in_box": [6],
+        "number_of_pass_rushers": [4],
+        "was_pressure": [False],
+    }
+    n = max((len(v) for v in overrides.values()), default=1)
+    for k, v in base.items():
+        base[k] = v * n if len(v) == 1 else v
+    base.update(overrides)
+    return pl.DataFrame(base)
+
+
+@pytest.mark.parametrize(
+    "personnel,expected",
+    [
+        ("1 C, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 3 WR", "11"),
+        ("1 C, 2 G, 1 QB, 1 RB, 2 T, 2 TE, 2 WR", "12"),
+        ("1 C, 2 G, 1 QB, 2 RB, 2 T, 1 TE, 2 WR", "21"),
+        ("1 C, 1 FB, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 2 WR", "21"),  # FB counts as a back
+        ("1 C, 2 G, 1 QB, 1 RB, 2 T, 3 TE, 1 WR", "13"),
+        ("1 C, 2 G, 1 QB, 2 T, 1 TE, 4 WR", "01"),               # empty backfield
+    ],
+)
+def test_personnel_grouping_parsing(personnel, expected):
+    plays = make_plays()
+    part = make_participation(offense_personnel=[personnel])
+    out = silver.add_participation(plays, part)
+    assert out["personnel_grouping"].to_list() == [expected]
+
+
+def test_tackle_count_is_not_read_as_tight_ends():
+    """"2 T," is tackles. A loose regex reads it as tight ends and turns every
+    11 personnel snap into 12."""
+    part = make_participation(
+        offense_personnel=["1 C, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 3 WR"]
+    )
+    out = silver.add_participation(make_plays(), part)
+    assert out["personnel_grouping"].to_list() == ["11"]
+
+
+def test_personnel_null_without_participation():
+    """The current season has no published participation, so these must come
+    back null rather than failing the run."""
+    out = silver.add_participation(make_plays(), None)
+    for col in ("offense_personnel", "offense_formation", "defenders_in_box"):
+        assert col in out.columns
+        assert out[col].to_list() == [None]
+    assert out["personnel_grouping"].to_list() == [None]
+
+
+def test_participation_join_preserves_grain():
+    plays = make_plays(game_id=["g1", "g1"], play_id=[1.0, 2.0])
+    part = make_participation(nflverse_game_id=["g1", "g1"], play_id=[1, 2])
+    out = silver.add_participation(plays, part)
+    assert out.height == 2
+    assert "_join_play_id" not in out.columns
+
+
+def test_charted_pressure_wins_over_the_proxy():
+    """qb_hit/sack say no pressure; the charted flag says yes. The charted value
+    is the measurement, so it wins -- and the method records that."""
+    plays = make_plays(qb_hit=[0], sack=[0], qb_dropback=[1])
+    part = make_participation(was_pressure=[True])
+    out = silver.add_true_pressure(silver.add_participation(plays, part))
+    assert out["true_pressure"].to_list() == [True]
+    assert out["true_pressure_method"].to_list() == ["participation"]
+
+
+def test_charted_no_pressure_overrides_a_qb_hit():
+    """The override runs both directions -- charting is authoritative, not just
+    an extra way to say yes."""
+    plays = make_plays(qb_hit=[1], sack=[0], qb_dropback=[1])
+    part = make_participation(was_pressure=[False])
+    out = silver.add_true_pressure(silver.add_participation(plays, part))
+    assert out["true_pressure"].to_list() == [False]
+    assert out["true_pressure_method"].to_list() == ["participation"]
+
+
+def test_falls_back_to_proxy_where_participation_is_missing():
+    plays = make_plays(game_id=["g1", "g1"], play_id=[1.0, 2.0],
+                       qb_hit=[0, 1], sack=[0, 0], qb_dropback=[1, 1])
+    part = make_participation(nflverse_game_id=["g1"], play_id=[1], was_pressure=[True])
+    out = silver.add_true_pressure(silver.add_participation(plays, part))
+    assert out["true_pressure"].to_list() == [True, True]
+    assert out["true_pressure_method"].to_list() == ["participation", "pbp_only"]
+
+
+def test_enrich_adds_every_declared_column():
+    out = silver.enrich(make_plays(), participation=make_participation())
+    for col in silver.ENRICHED_COLUMNS:
+        assert col in out.columns, col
