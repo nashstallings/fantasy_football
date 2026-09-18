@@ -43,6 +43,13 @@ All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on e
 - League scoring, age curve, VOR demand, QB superflex premium, and auction budget are all in `src/nfl_data/config.py` — tune there rather than hand-editing pipeline code.
 - `yprr_proxy` has one row per `(season, season_type, gsis_id, team)`. A query without a `season_type` predicate returns a player's regular season *and* postseason rows, so `SELECT ... WHERE season = 2025` alone will double-count anyone whose team made the playoffs. Summing the two back together is not a workaround — a four-game playoff sample and a seventeen-game one are different statistics, and pooling them is the bug this grain exists to prevent.
 
+## Analysis
+
+One-off charts and studies built on these tables live in `analysis/`, each in
+its own directory with the query that produced it.
+
+- **`analysis/wr_volume_vs_efficiency/`** — top-12 WRs per season, 2021–2025, points per game against YPRR. Its snapshotted rowset predates the exact route counts; the directory README says what's stale and how to refresh it.
+
 ## Other files
 
 - **`index.html`** — Dynasty Tycoon auction draft model, a standalone client-side roster/contract tracker (manual entry, no BigQuery integration yet).
