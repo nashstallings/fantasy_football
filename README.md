@@ -31,7 +31,7 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 | `snap_counts` | nflreadpy | Weekly snap share by player |
 | `nextgen_stats` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
 | `ff_opportunity` | nflreadpy | Weekly opportunity/target-share model output |
-| `yprr_proxy` | derived (nflreadpy) | Estimated YPRR/target rate via a snap-share proxy — see `yprr.py` module docstring for methodology and caveats before trusting the numbers |
+| `yprr_proxy` | derived (nflreadpy) | YPRR/target rate. Check `routes_method`: `participation_on_field` counts actual on-field dropbacks (2016+), `snap_share_estimate` is the older proxy. See `yprr.py` for caveats before trusting the numbers |
 
 All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
 
