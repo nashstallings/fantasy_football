@@ -7,8 +7,10 @@ panels on shared axes instead -- the documented remedy.
     python build_chart.py [output.html]
 
 Reads the rowset from data.py rather than BigQuery, so it renders offline.
-See README.md before trusting the numbers: that rowset predates the exact
-route counts and needs refreshing from query.sql.
+
+If you refresh data.py, recompute FIT below in the same pass -- it is fitted
+to those exact rows, and stale fit lines over fresh points render a chart that
+looks right and is not.
 """
 import json
 import os
@@ -17,20 +19,21 @@ import sys
 from data import ROWS
 
 SEASONS = [2021, 2022, 2023, 2024, 2025]
-# per-season least squares + pearson r (computed from the same rows)
+# Per-season least squares (yprr ~ ppg) and Pearson r, fitted to data.ROWS.
+# Recompute these whenever ROWS changes -- see the note in data.py.
 FIT = {
-    2021: (0.1569,  0.133, 0.856),
-    2022: (0.1002,  1.198, 0.472),
-    2023: (0.1964, -0.149, 0.732),
-    2024: (0.0636,  1.571, 0.395),
-    2025: (0.2543, -0.905, 0.802),
+    2021: ( 0.1533,  0.011, 0.894),
+    2022: ( 0.1036,  0.960, 0.570),
+    2023: ( 0.1483,  0.385, 0.715),
+    2024: ( 0.0703,  1.317, 0.546),
+    2025: ( 0.2124, -0.563, 0.816),
 }
 
 W, H = 340, 252
 M = {"t": 12, "r": 16, "b": 34, "l": 40}
 PW, PH = W - M["l"] - M["r"], H - M["t"] - M["b"]
-X_MIN, X_MAX = 10.0, 22.0
-Y_MIN, Y_MAX = 1.5, 4.75
+X_MIN, X_MAX = 10.0, 22.5   # data maxes at 21.59; the extra room is label space
+Y_MIN, Y_MAX = 1.5, 4.25   # data spans 1.630-3.945; headroom for the top label
 XT, YT = [12, 16, 20], [2, 3, 4]
 R = 4.5
 FS = 11.0
@@ -321,14 +324,15 @@ html = f"""<title>WR Volume vs Efficiency</title>
 <div class="wrap">
   <header>
     <div class="eyebrow">2021–2025 · regular season only · half-PPR</div>
-    <h1>Some years the top scorers are the efficient ones. Some years they aren't.</h1>
+    <h1>The top scorers are the efficient ones — every year, by varying margins.</h1>
     <p class="lede">Every top-12 wide receiver season from the last five years — 60 in all,
       twelve per season — plotted by half-PPR points per game against yards per route run.
       Panels share both axes, so a point in one year sits where it would in any other.
-      How tightly the two move together swings hard by season: <strong>2021</strong> and
-      <strong>2025</strong> are strongly aligned (r&nbsp;=&nbsp;0.86, 0.80), while
-      <strong>2022</strong> and <strong>2024</strong> nearly break the link
-      (0.47, 0.40) — those were years the leading scorers won on volume.</p>
+      The link never breaks: every season lands between r&nbsp;=&nbsp;0.55 and 0.89. What
+      moves is how tight it is. <strong>2021</strong> and <strong>2025</strong> are nearly
+      linear (0.89, 0.82); <strong>2022</strong> and <strong>2024</strong> are looser
+      (0.57, 0.55) — years when a few of the leading scorers got there on volume rather
+      than on rate.</p>
   </header>
 
   <div class="card">
