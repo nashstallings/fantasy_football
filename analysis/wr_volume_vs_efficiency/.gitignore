@@ -1,0 +1,3 @@
+# Build output -- regenerate with `python build_chart.py`.
+wr_chart.html
+archive/wr_chart_2025.html
