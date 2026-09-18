@@ -48,7 +48,7 @@ All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on e
 One-off charts and studies built on these tables live in `analysis/`, each in
 its own directory with the query that produced it.
 
-- **`analysis/wr_volume_vs_efficiency/`** — top-12 WRs per season, 2021–2025, points per game against YPRR. Its snapshotted rowset predates the exact route counts; the directory README says what's stale and how to refresh it.
+- **`analysis/wr_volume_vs_efficiency/`** — top-12 WRs per season, 2021–2025, points per game against YPRR. Rebuilt on the corrected `yprr_proxy`; the directory README covers how to refresh it.
 
 ## Other files
 
