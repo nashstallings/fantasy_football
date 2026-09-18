@@ -31,7 +31,7 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 | `snap_counts` | nflreadpy | Weekly snap share by player |
 | `nextgen_stats` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
 | `ff_opportunity` | nflreadpy | Weekly opportunity/target-share model output |
-| `yprr_proxy` | derived (nflreadpy) | YPRR/target rate. Check `routes_method`: `participation_on_field` counts actual on-field dropbacks (2016+), `snap_share_estimate` is the older proxy. See `yprr.py` for caveats before trusting the numbers |
+| `yprr_proxy` | derived (nflreadpy) | YPRR/target rate. **Always filter on `season_type`** — REG and POST are separate rows. Check `routes_method`: `participation_on_field` counts actual on-field dropbacks (2016+), `snap_share_estimate` is the older proxy. See `yprr.py` for caveats before trusting the numbers |
 
 All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
 
@@ -41,6 +41,7 @@ All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on e
 
 - Sleeper's `gsis_id` field is sparse. `nfl_data.id_matching.resolve_gsis_ids` backfills it by name+position match against nflreadpy's player table, then falls back to a stable synthetic id (`config.SYNTHETIC_GSIS_OVERRIDES` for known cases, else `SL_<sleeper_id>`) for anyone still unmatched — mostly very recent rookies.
 - League scoring, age curve, VOR demand, QB superflex premium, and auction budget are all in `src/nfl_data/config.py` — tune there rather than hand-editing pipeline code.
+- `yprr_proxy` has one row per `(season, season_type, gsis_id, team)`. A query without a `season_type` predicate returns a player's regular season *and* postseason rows, so `SELECT ... WHERE season = 2025` alone will double-count anyone whose team made the playoffs. Summing the two back together is not a workaround — a four-game playoff sample and a seventeen-game one are different statistics, and pooling them is the bug this grain exists to prevent.
 
 ## Other files
 

@@ -30,7 +30,11 @@ DATA SOURCES (all via nflreadpy, free):
                             (snap_counts keys on pfr_id, player_stats
                              keys on gsis_id -- these must be joined)
 
-OUTPUT GRAIN: season, player (gsis_id), team, position
+SEASON TYPE: every source is filtered to one season_type, and the value is
+carried on the output. Regular season and postseason must not be summed into
+a single row -- see the note on SEASON_TYPES below.
+
+OUTPUT GRAIN: season, season_type, player (gsis_id), team, position
 """
 
 import nflreadpy as nfl
@@ -42,8 +46,32 @@ PARTICIPATION_FIRST_SEASON = 2016
 ROUTES_EXACT = "participation_on_field"
 ROUTES_ESTIMATED = "snap_share_estimate"
 
+# The table is built one season_type at a time and every row records which.
+#
+# Pooling the two is not a rounding problem, it is a different statistic. A
+# player-season row that silently spans both is computed over up to 21 games
+# against a 17-game denominator, and it mixes a full-league sample with a
+# four-game one drawn only from playoff teams -- so the players whose numbers
+# move are exactly the good ones, which is the worst possible bias for a
+# leaderboard. REG is the default because that is what season-level fantasy
+# analysis means by a season.
+SEASON_TYPES = ("REG", "POST")
+DEFAULT_SEASON_TYPE = "REG"
+
+# Both routes paths emit exactly this, in this order. polars' vertical concat
+# matches columns by position, not by name, so the two have to be pinned to a
+# shared order somewhere -- doing it explicitly means a future column added to
+# one path and not the other fails on the select instead of silently
+# concatenating a routes count on top of a game count.
+ROUTES_COLUMNS = [
+    "season", "season_type", "gsis_id", "player", "position", "team",
+    "routes_est", "games", "routes_method",
+]
+
 TABLE_DESCRIPTION = (
-    "YPRR / target rate over routes that are NOT charted routes run. Check "
+    "YPRR / target rate over routes that are NOT charted routes run. Rows are "
+    "one season_type only -- never sum a REG row and a POST row, the whole "
+    "point of the column is that those are different samples. Check "
     "routes_method per row: 'participation_on_field' counts the dropbacks a "
     "player was actually on the field for (nflverse participation, 2016+); "
     "'snap_share_estimate' is the older offense_snap_pct * team_dropbacks "
@@ -55,11 +83,25 @@ TABLE_DESCRIPTION = (
 )
 
 
-def load_team_dropbacks(seasons: list[int]) -> pl.DataFrame:
+def _check_season_type(season_type: str) -> str:
+    if season_type not in SEASON_TYPES:
+        raise ValueError(
+            f"season_type must be one of {SEASON_TYPES}, got {season_type!r}. "
+            "Build each separately and concatenate if you want both -- there is "
+            "no combined mode, because a combined row is the bug this guards."
+        )
+    return season_type
+
+
+def load_team_dropbacks(
+    seasons: list[int], season_type: str = DEFAULT_SEASON_TYPE
+) -> pl.DataFrame:
     """Team dropbacks per game: pass attempts + sacks, by posteam/game."""
+    _check_season_type(season_type)
     pbp = nfl.load_pbp(seasons=seasons)
     return (
-        pbp.filter((pl.col("pass_attempt") == 1) | (pl.col("sack") == 1))
+        pbp.filter(pl.col("season_type") == season_type)
+        .filter((pl.col("pass_attempt") == 1) | (pl.col("sack") == 1))
         .group_by(["season", "week", "game_id", "posteam"])
         .agg(pl.len().alias("team_dropbacks"))
         .rename({"posteam": "team"})
@@ -77,7 +119,9 @@ def load_player_id_crosswalk() -> pl.DataFrame:
     )
 
 
-def count_routes_on_field(seasons: list[int]) -> pl.DataFrame:
+def count_routes_on_field(
+    seasons: list[int], season_type: str = DEFAULT_SEASON_TYPE
+) -> pl.DataFrame:
     """Exact count of dropbacks each skill player was on the field for.
 
     nflverse participation carries `offense_players`, the eleven gsis_ids on the
@@ -91,9 +135,14 @@ def count_routes_on_field(seasons: list[int]) -> pl.DataFrame:
     routes. What goes away is the *estimation* error, which on 2025 ran to a
     7.4% median and 36% on the worst blocking tight ends.
 
+    Participation carries no season_type of its own. It does not need one: the
+    inner join against play-by-play below is what sets the scope, so filtering
+    the dropbacks is sufficient to keep playoff plays out of a REG count.
+
     Processed a season at a time: exploding eleven players per play across a
     decade at once is a needlessly large frame.
     """
+    _check_season_type(season_type)
     wanted = [s for s in seasons if s >= PARTICIPATION_FIRST_SEASON]
     if not wanted:
         return pl.DataFrame()
@@ -121,6 +170,7 @@ def count_routes_on_field(seasons: list[int]) -> pl.DataFrame:
         # comparable where they overlap.
         drops = (
             nfl.load_pbp(seasons=season)
+            .filter(pl.col("season_type") == season_type)
             .filter((pl.col("pass_attempt") == 1) | (pl.col("sack") == 1))
             .select(
                 pl.col("season"), pl.col("game_id"),
@@ -154,19 +204,39 @@ def count_routes_on_field(seasons: list[int]) -> pl.DataFrame:
 
     if not frames:
         return pl.DataFrame()
-    return pl.concat(frames, how="vertical_relaxed").with_columns(
-        pl.lit(ROUTES_EXACT).alias("routes_method")
+    return (
+        pl.concat(frames, how="vertical_relaxed")
+        .with_columns(
+            pl.lit(ROUTES_EXACT).alias("routes_method"),
+            pl.lit(season_type).alias("season_type"),
+        )
+        .select(ROUTES_COLUMNS)
     )
 
 
-def estimate_routes_run(seasons: list[int]) -> pl.DataFrame:
+def estimate_routes_run(
+    seasons: list[int], season_type: str = DEFAULT_SEASON_TYPE
+) -> pl.DataFrame:
     """Per-player, per-game estimated routes run, rolled up to season.
 
     The fallback, used for seasons participation doesn't cover: before 2016,
     and the season in progress, which nflverse publishes only after the fact.
+
+    snap_counts splits the postseason into round labels -- WC, DIV, CON, SB --
+    where every other source here just says POST, so the filter is "is/isn't
+    REG" rather than an equality against season_type.
     """
-    snaps = nfl.load_snap_counts(seasons=seasons).filter(pl.col("position").is_in(["WR", "TE", "RB"]))
-    dropbacks = load_team_dropbacks(seasons)
+    _check_season_type(season_type)
+    game_types = (
+        pl.col("game_type") == "REG" if season_type == "REG"
+        else pl.col("game_type") != "REG"
+    )
+    snaps = (
+        nfl.load_snap_counts(seasons=seasons)
+        .filter(pl.col("position").is_in(["WR", "TE", "RB"]))
+        .filter(game_types)
+    )
+    dropbacks = load_team_dropbacks(seasons, season_type)
     crosswalk = load_player_id_crosswalk()
 
     game_level = (
@@ -182,11 +252,17 @@ def estimate_routes_run(seasons: list[int]) -> pl.DataFrame:
             pl.col("game_id").n_unique().alias("games"),
         )
         .filter(pl.col("gsis_id").is_not_null())
-        .with_columns(pl.lit(ROUTES_ESTIMATED).alias("routes_method"))
+        .with_columns(
+            pl.lit(ROUTES_ESTIMATED).alias("routes_method"),
+            pl.lit(season_type).alias("season_type"),
+        )
+        .select(ROUTES_COLUMNS)
     )
 
 
-def routes_for(seasons: list[int]) -> pl.DataFrame:
+def routes_for(
+    seasons: list[int], season_type: str = DEFAULT_SEASON_TYPE
+) -> pl.DataFrame:
     """Routes per player-season-team, exact where participation reaches and
     estimated everywhere else, with `routes_method` recording which.
 
@@ -196,20 +272,23 @@ def routes_for(seasons: list[int]) -> pl.DataFrame:
     tight ends, so a player's apparent year-over-year change across the 2016
     boundary can be entirely methodological.
     """
-    exact = count_routes_on_field(seasons)
+    _check_season_type(season_type)
+    exact = count_routes_on_field(seasons, season_type)
     covered = set(exact["season"].unique().to_list()) if exact.height else set()
 
     remaining = [s for s in seasons if s not in covered]
     if not remaining:
         return exact
 
-    estimated = estimate_routes_run(remaining)
+    estimated = estimate_routes_run(remaining, season_type)
     if exact.height == 0:
         return estimated
     return pl.concat([exact, estimated], how="vertical_relaxed")
 
 
-def load_receiving_production(seasons: list[int]) -> pl.DataFrame:
+def load_receiving_production(
+    seasons: list[int], season_type: str = DEFAULT_SEASON_TYPE
+) -> pl.DataFrame:
     """Targets and receiving yards per player-season-TEAM.
 
     Split by team on purpose. Routes are counted per team (a player who is
@@ -219,23 +298,45 @@ def load_receiving_production(seasons: list[int]) -> pl.DataFrame:
     them. Jakobi Meyers in 2025 is the worked example: 495 yards on 237 routes
     for JAX and 352 on 293 for LV, which the season-level join reported as 847
     yards against each.
+
+    Split by season_type for the same reason. Routes are counted within one
+    season_type, so yards have to be too -- otherwise a playoff run's yards land
+    on top of a regular season route count and the numerator and denominator are
+    measuring different games.
     """
-    weekly = nfl.load_player_stats(seasons=seasons, summary_level="week")
+    _check_season_type(season_type)
+    weekly = nfl.load_player_stats(seasons=seasons, summary_level="week").filter(
+        pl.col("season_type") == season_type
+    )
     by_team = weekly.group_by(["season", "player_id", "team"]).agg(
         pl.col("targets").sum().alias("targets"),
         pl.col("receiving_yards").sum().alias("receiving_yards"),
     )
-    return by_team.rename({"player_id": "gsis_id"})
+    return by_team.rename({"player_id": "gsis_id"}).with_columns(
+        pl.lit(season_type).alias("season_type")
+    )
 
 
-def build_yprr_table(seasons: list[int], min_routes: int = 50) -> pl.DataFrame:
+def build_yprr_table(
+    seasons: list[int],
+    min_routes: int = 50,
+    season_type: str = DEFAULT_SEASON_TYPE,
+) -> pl.DataFrame:
     """Full pipeline: join routes proxy to production, compute YPRR and
-    target rate. min_routes filters out tiny/noisy samples."""
-    routes = routes_for(seasons)
-    production = load_receiving_production(seasons)
+    target rate. min_routes filters out tiny/noisy samples.
+
+    One season_type per call, REG by default. For both, build each and
+    concatenate -- the rows stay distinguishable by the season_type column, and
+    nothing in the join can mix them.
+    """
+    _check_season_type(season_type)
+    routes = routes_for(seasons, season_type)
+    production = load_receiving_production(seasons, season_type)
 
     df = (
-        routes.join(production, on=["season", "gsis_id", "team"], how="inner")
+        routes.join(
+            production, on=["season", "season_type", "gsis_id", "team"], how="inner"
+        )
         .filter(pl.col("routes_est") >= min_routes)
         .with_columns(
             (pl.col("receiving_yards") / pl.col("routes_est")).round(3).alias("yprr_est"),
@@ -246,6 +347,7 @@ def build_yprr_table(seasons: list[int], min_routes: int = 50) -> pl.DataFrame:
     return df.select(
         [
             "season",
+            "season_type",
             "gsis_id",
             "player",
             "position",

@@ -5,6 +5,7 @@ part of the default run -- call it explicitly if you want it."""
 
 import nflreadpy as nfl
 import pandas as pd
+import polars as pl
 
 from . import config
 from .bigquery_io import set_table_description, write_tables
@@ -29,9 +30,28 @@ def run_nflreadpy_tables(season: int = config.CURRENT_SEASON, write_to_bq: bool 
     return tables
 
 
-def run_yprr(seasons: list[int] | None = None, write_to_bq: bool = True) -> pd.DataFrame:
+def run_yprr(
+    seasons: list[int] | None = None,
+    write_to_bq: bool = True,
+    season_types: tuple[str, ...] = config.YPRR_SEASON_TYPES,
+) -> pd.DataFrame:
+    """Build the YPRR proxy table, one block of rows per season_type.
+
+    Both REG and POST are published, kept apart by the season_type column.
+    Every query against this table needs a season_type predicate -- without
+    one a player with a playoff run comes back as two rows, which is the
+    point: those are two different samples and were never addable.
+    """
     seasons = seasons or config.YPRR_SEASONS
-    df = build_yprr_table(seasons=seasons, min_routes=config.YPRR_MIN_ROUTES).to_pandas()
+    blocks = [
+        build_yprr_table(
+            seasons=seasons,
+            min_routes=config.YPRR_MIN_ROUTES,
+            season_type=season_type,
+        )
+        for season_type in season_types
+    ]
+    df = pl.concat(blocks, how="vertical_relaxed").to_pandas()
     if write_to_bq:
         write_tables({"yprr_proxy": df}, config.PROJECT_ID, config.NFLREADPY_DATASET_ID)
         set_table_description(config.PROJECT_ID, config.NFLREADPY_DATASET_ID, "yprr_proxy", YPRR_TABLE_DESCRIPTION)

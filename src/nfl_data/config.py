@@ -17,6 +17,11 @@ CURRENT_SEASON = 2025
 YPRR_SEASONS = list(range(2012, CURRENT_SEASON + 1))
 YPRR_MIN_ROUTES = 50
 
+# Season types published to yprr_proxy, as separate rows rather than one summed
+# row. Set to ("REG",) to drop the postseason block entirely; do not try to
+# merge them, a row spanning both is meaningless.
+YPRR_SEASON_TYPES = ("REG", "POST")
+
 # Season the Sleeper dynasty auction valuation targets
 PROJECTION_SEASON = 2026
 
