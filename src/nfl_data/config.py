@@ -1,5 +1,9 @@
 """Project-wide configuration for the nfl_data pipeline."""
 
+import os
+
+import nflreadpy as nfl
+
 PROJECT_ID = "ff-python-api"
 
 # BigQuery datasets. The nflreadpy pulls and the derived yprr_proxy table
@@ -10,11 +14,54 @@ VALUATION_DATASET_ID = "dynasty_tycoon"
 
 FANTASY_POSITIONS = ["QB", "RB", "WR", "TE"]
 
-# Season for the core nflreadpy loads (player_stats, snap_counts, nextgen_stats, ff_opportunity)
-CURRENT_SEASON = 2025
+# snap_counts, the YPRR proxy's input, is published from 2013. nflverse has no
+# 2012 file despite the range this used to claim.
+YPRR_FIRST_SEASON = 2013
 
-# Seasons for the YPRR proxy table (snap_counts, its input, starts in 2012)
-YPRR_SEASONS = list(range(2012, CURRENT_SEASON + 1))
+# How many seasons the raw nflreadpy tables carry. See raw_seasons().
+RAW_SEASON_HISTORY = 2
+
+SEASON_ENV_VAR = "NFL_DATA_SEASON"
+
+
+def current_season() -> int:
+    """The season to load, resolved when it is asked for rather than at import.
+
+    This was a hardcoded literal, which is how the pipeline came to spend the
+    opening weeks of 2026 faithfully republishing 2025. Reading it from
+    nflreadpy means the rollover needs no commit.
+
+    nflreadpy rolls this over on the Thursday after Labor Day, so through the
+    offseason it still names the season that just finished -- which is the
+    right answer for a table of results, and the reason raw_seasons() keeps a
+    window rather than trusting any single value.
+
+    Set NFL_DATA_SEASON to override, for a backfill or a test.
+    """
+    override = os.environ.get(SEASON_ENV_VAR)
+    if override:
+        return int(override)
+    return nfl.get_current_season()
+
+
+def raw_seasons() -> list[int]:
+    """Seasons published to the raw nflreadpy tables.
+
+    A window, not a single season, because these tables are written with
+    if_exists="replace". Loading only the current season would mean the first
+    run after a rollover replaces a finished season with whatever exists of
+    the new one -- in Week 1 that is a near-empty table, and the season it
+    overwrote is gone.
+    """
+    current = current_season()
+    return list(range(current - RAW_SEASON_HISTORY + 1, current + 1))
+
+
+def yprr_seasons() -> list[int]:
+    """Every season the YPRR proxy covers, through the current one."""
+    return list(range(YPRR_FIRST_SEASON, current_season() + 1))
+
+
 YPRR_MIN_ROUTES = 50
 
 # Season types published to yprr_proxy, as separate rows rather than one summed

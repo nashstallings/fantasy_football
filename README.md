@@ -15,7 +15,29 @@ pip install -e .
 
 Then edit modules under `src/nfl_data/`, test locally, commit, push.
 
+### Running weekly (automatic)
+
+`.github/workflows/nfl_data_weekly.yml` refreshes every table each Tuesday at
+13:00 UTC, so the current season lands without anyone opening a notebook. It
+authenticates through Workload Identity Federation — the same secrets the
+play-by-play jobs use — and skips with a notice if they aren't set.
+
+Run it by hand from the Actions tab (**NFL Data Weekly Refresh** →
+Run workflow) to force a refresh or to load specific seasons. Locally:
+
+```bash
+python jobs/run_nfl_data.py --dry-run     # builds everything, writes nothing
+python jobs/run_nfl_data.py               # needs GCP credentials
+```
+
+**The season is not configured anywhere.** `config.current_season()` reads it
+from nflreadpy at run time, so the rollover needs no commit. Override with
+`NFL_DATA_SEASON` for a backfill.
+
 ### Running in Colab
+
+Still works, and still the place for a one-off or for iterating. The weekly job
+just means nobody has to remember.
 
 1. Open `notebooks/nfl_data_runner.ipynb` in Colab (or `File > Open notebook > GitHub` and paste this repo's URL).
 2. Run all cells. It clones the repo fresh each run, so it always uses whatever is on `main`. The repo is public, so no token is needed.
@@ -35,6 +57,12 @@ Then edit modules under `src/nfl_data/`, test locally, commit, push.
 
 All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
 
+The four weekly tables carry a **two-season window** (`config.raw_seasons()`),
+not just the current one. They're written with `if_exists="replace"`, so a
+single-season window would mean the first run after a rollover swaps a finished
+season for a Week 1 stub and the old one is gone. `yprr_proxy` is independent of
+that window — it always spans 2013 through the current season.
+
 `player_auction_values` (`dynasty_tycoon` dataset, Sleeper + nflreadpy, age-adjusted/superflex-aware dynasty auction values priced to a $3000/12-team budget) is **not** run by default — call `nfl_data.run_auction_values()` explicitly (see notebook step 6) if you want it.
 
 ### Known gotchas
@@ -42,6 +70,9 @@ All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on e
 - Sleeper's `gsis_id` field is sparse. `nfl_data.id_matching.resolve_gsis_ids` backfills it by name+position match against nflreadpy's player table, then falls back to a stable synthetic id (`config.SYNTHETIC_GSIS_OVERRIDES` for known cases, else `SL_<sleeper_id>`) for anyone still unmatched — mostly very recent rookies.
 - League scoring, age curve, VOR demand, QB superflex premium, and auction budget are all in `src/nfl_data/config.py` — tune there rather than hand-editing pipeline code.
 - `yprr_proxy` has one row per `(season, season_type, gsis_id, team)`. A query without a `season_type` predicate returns a player's regular season *and* postseason rows, so `SELECT ... WHERE season = 2025` alone will double-count anyone whose team made the playoffs. Summing the two back together is not a workaround — a four-game playoff sample and a seventeen-game one are different statistics, and pooling them is the bug this grain exists to prevent.
+- **The season in progress uses a different routes method, and switches mid-season.** nflverse doesn't publish participation until after the fact, so the current season's `yprr_proxy` rows fall back to `snap_share_estimate` while every completed season from 2016 on is `participation_on_field`. The estimate runs ~7% off the count at the median and far worse on blocking tight ends, so a current-season row is not comparable to a prior-season one without checking `routes_method` — and those rows will change when participation lands. Expect small samples too: at Week 3 the 50-route floor leaves ~60 qualifying players on two games each.
+- **The weekly job rewrites every table in full**, rather than appending the new week — same reasoning as the play-by-play job. Cron skips firings, and a full rewrite means the next run repairs the gap instead of leaving a permanent hole. It also picks up the stat corrections that land days after a game.
+- **An empty source is refused, not written.** Every write is `if_exists="replace"`, so a frame with zero rows would delete the table rather than leave it alone. `write_tables` raises `EmptyWriteRefused` instead, and the weekly job treats that as a clean skip — an upstream outage costs a run, not a table.
 
 ## Analysis
 
