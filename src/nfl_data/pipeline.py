@@ -17,13 +17,22 @@ from .yprr import TABLE_DESCRIPTION as YPRR_TABLE_DESCRIPTION
 from .yprr import build_yprr_table
 
 
-def run_nflreadpy_tables(season: int = config.CURRENT_SEASON, write_to_bq: bool = True) -> dict[str, pd.DataFrame]:
+def run_nflreadpy_tables(
+    seasons: int | list[int] | None = None, write_to_bq: bool = True
+) -> dict[str, pd.DataFrame]:
+    """Refresh the raw nflreadpy tables for `seasons`.
+
+    Defaults to config.raw_seasons(), a window ending at the current season --
+    resolved now, not at import, so the season rolls over on its own.
+    """
+    seasons = seasons if seasons is not None else config.raw_seasons()
+    print(f"Loading nflreadpy tables for {seasons}")
     tables = {
         "players": fetch_players(),
-        "player_stats": fetch_player_stats(season),
-        "snap_counts": fetch_snap_counts(season),
-        "nextgen_stats": fetch_nextgen_stats(season),
-        "ff_opportunity": fetch_ff_opportunity(season),
+        "player_stats": fetch_player_stats(seasons),
+        "snap_counts": fetch_snap_counts(seasons),
+        "nextgen_stats": fetch_nextgen_stats(seasons),
+        "ff_opportunity": fetch_ff_opportunity(seasons),
     }
     if write_to_bq:
         write_tables(tables, config.PROJECT_ID, config.NFLREADPY_DATASET_ID)
@@ -42,7 +51,7 @@ def run_yprr(
     one a player with a playoff run comes back as two rows, which is the
     point: those are two different samples and were never addable.
     """
-    seasons = seasons or config.YPRR_SEASONS
+    seasons = seasons or config.yprr_seasons()
     blocks = [
         build_yprr_table(
             seasons=seasons,

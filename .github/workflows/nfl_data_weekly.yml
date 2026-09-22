@@ -1,0 +1,81 @@
+name: NFL Data Weekly Refresh
+
+on:
+  schedule:
+    # Tuesday 13:00 UTC -- an hour behind the play-by-play job, which writes to
+    # a different dataset but pulls the same nflverse files. Staggering keeps
+    # them off the same cache-miss stampede, and puts both after Monday night
+    # has settled.
+    #
+    # Cron is best-effort and can skip a firing entirely, so run_nfl_data.py
+    # rewrites every table in full rather than appending the new week. A missed
+    # Tuesday repairs itself on the next one.
+    - cron: '0 13 * * 2'
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: 'Seasons for the raw tables (space separated). Blank uses the current window.'
+        required: false
+        default: ''
+      skip_yprr:
+        description: 'Refresh the raw tables only'
+        type: boolean
+        required: false
+        default: false
+
+# The writes are if_exists="replace"; two overlapping runs would race on the
+# same tables and the loser could leave a half-written dataset.
+concurrency:
+  group: nfl-data-write
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write    # required for Workload Identity Federation
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: pip install -e .
+
+      # Same posture as the pbp job: until the WIF secrets exist, skip with a
+      # notice rather than failing every Tuesday. A job that cries wolf for
+      # weeks is muted by the time it matters.
+      - name: Check GCP configuration
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.GCP_WIF_PROVIDER }}" ] || [ -z "${{ secrets.GCP_SERVICE_ACCOUNT }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GCP_WIF_PROVIDER / GCP_SERVICE_ACCOUNT not set - skipping the refresh. Configure Workload Identity Federation and add the repo secrets to enable."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: google-github-actions/auth@v3
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Refresh nfl_data tables
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          args=""
+          if [ -n "${{ inputs.seasons }}" ]; then
+            args="$args --seasons ${{ inputs.seasons }}"
+          fi
+          if [ "${{ inputs.skip_yprr }}" = "true" ]; then
+            args="$args --skip-yprr"
+          fi
+          python jobs/run_nfl_data.py $args

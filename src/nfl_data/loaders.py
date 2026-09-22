@@ -37,31 +37,40 @@ def fetch_players() -> pd.DataFrame:
     return merged.drop(columns=merged.filter(regex="_dup$").columns)
 
 
-def fetch_player_stats(season: int) -> pd.DataFrame:
-    """Weekly stat lines with a within-week, within-position PPR rank added."""
-    stats = nfl.load_player_stats(seasons=season, summary_level="week").to_pandas()
+def fetch_player_stats(seasons: int | list[int]) -> pd.DataFrame:
+    """Weekly stat lines with a within-week, within-position PPR rank added.
+
+    The rank groups on season as well as week. It has to: these loads span
+    more than one season now, and grouping on week alone pools Week 1 of every
+    season into a single ranking. Across 2025+2026 that moved 1,397 of 7,037
+    rows and pushed the worst rank from 152 to 301 -- a number that reads like
+    a positional rank and isn't one.
+    """
+    stats = nfl.load_player_stats(seasons=seasons, summary_level="week").to_pandas()
     stats = _filter_positions(stats)
-    stats["weekly_positional_rank"] = stats.groupby(["week", "position"])["fantasy_points_ppr"].rank(
-        method="min", ascending=False
-    )
+    stats["weekly_positional_rank"] = stats.groupby(["season", "week", "position"])[
+        "fantasy_points_ppr"
+    ].rank(method="min", ascending=False)
     return stats
 
 
-def fetch_snap_counts(season: int) -> pd.DataFrame:
-    snaps = nfl.load_snap_counts(seasons=season).to_pandas()
+def fetch_snap_counts(seasons: int | list[int]) -> pd.DataFrame:
+    snaps = nfl.load_snap_counts(seasons=seasons).to_pandas()
     return _filter_positions(snaps)
 
 
-def fetch_nextgen_stats(season: int) -> pd.DataFrame:
+def fetch_nextgen_stats(seasons: int | list[int]) -> pd.DataFrame:
     """Passing + receiving + rushing Next Gen Stats, stacked long."""
     frames = [
-        nfl.load_nextgen_stats(seasons=season, stat_type=stat_type).to_pandas()
+        nfl.load_nextgen_stats(seasons=seasons, stat_type=stat_type).to_pandas()
         for stat_type in ("passing", "receiving", "rushing")
     ]
     combined = pd.concat(frames, ignore_index=True)
     return _filter_positions(combined, position_col="player_position")
 
 
-def fetch_ff_opportunity(season: int) -> pd.DataFrame:
-    opportunity = nfl.load_ff_opportunity(seasons=season, stat_type="weekly", model_version="latest").to_pandas()
+def fetch_ff_opportunity(seasons: int | list[int]) -> pd.DataFrame:
+    opportunity = nfl.load_ff_opportunity(
+        seasons=seasons, stat_type="weekly", model_version="latest"
+    ).to_pandas()
     return _filter_positions(opportunity)
