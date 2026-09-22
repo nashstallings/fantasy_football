@@ -123,6 +123,14 @@ In CI both jobs authenticate through Workload Identity Federation — there is n
 service-account key anywhere in this repo. Requires repo secrets
 `GCP_PROJECT_ID`, `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT`.
 
+The same service account backs the `nfl_data` weekly job, so its grant list
+covers `pbp_bronze`, `pbp_silver`, `pbp_gold` **and** `nflreadpy`. If you set
+WIF up before that fourth dataset was added, the `nfl_data` job fails with
+`Access Denied ... bigquery.tables.get denied on table nflreadpy.players` —
+re-run `./scripts/setup_wif.sh`, which is idempotent and adds only what's
+missing. `dynasty_tycoon` is deliberately *not* granted: nothing in Actions
+writes it.
+
 First-time setup is one command, easiest from
 [Google Cloud Shell](https://console.cloud.google.com/) (gcloud and bq are
 preinstalled and already authenticated):
