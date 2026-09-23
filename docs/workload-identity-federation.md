@@ -74,7 +74,7 @@ at the wrong project or the wrong account.
 | Pool ID | `github-actions` |
 | Provider ID | `github` |
 | Service account | `gh-actions-pbp@ff-python-api.iam.gserviceaccount.com` |
-| Datasets | `pbp_bronze`, `pbp_silver`, `pbp_gold` |
+| Datasets | `pbp_bronze`, `pbp_silver`, `pbp_gold`, `nflreadpy` |
 
 ---
 
@@ -221,14 +221,25 @@ gcloud projects add-iam-policy-binding ff-python-api \
   --condition=None
 ```
 
-**Data access, per dataset.** Scoped to the three `pbp_*` datasets so a leaked
-workflow token cannot read or modify the `nflreadpy` dataset the other pipeline
-owns.
+**Data access, per dataset.** Scoped per dataset, never project-wide.
+
+This list used to exclude `nflreadpy`, so a leaked workflow token could not
+touch the dataset the other pipeline owned. That held while `nflreadpy` was
+written only from Colab under a human's credentials. `nfl_data_weekly.yml` now
+writes it on this same token, so the exclusion would only mean the job can't
+run.
+
+What the widening costs: every table in `nflreadpy` and `pbp_*` rebuilds from
+public nflverse files in about a minute, so the worst a stolen token does here
+is force a re-run. **`dynasty_tycoon` holds the irreplaceable state** — the
+Sleeper-derived auction values — and is deliberately still absent from this
+list. Nothing in Actions writes it and `run_auction_values()` stays a
+Colab-only call. Keep it off.
 
 The datasets have to exist before you can grant on them:
 
 ```bash
-for ds in pbp_bronze pbp_silver pbp_gold; do
+for ds in pbp_bronze pbp_silver pbp_gold nflreadpy; do
   bq --project_id=ff-python-api mk --dataset --location=US "ff-python-api:${ds}" || true
   bq --project_id=ff-python-api query --use_legacy_sql=false \
     "GRANT \`roles/bigquery.dataEditor\` ON SCHEMA \`ff-python-api.${ds}\`
@@ -322,6 +333,7 @@ Once that passes, the Tuesday cron will start doing real work on its own.
 | `The attribute condition must reference one of the provider's claims` | `attribute.repository` is missing from `--attribute-mapping` | Recreate the provider with both flags as in step 5 |
 | `Access Denied: Project ff-python-api: User does not have bigquery.jobs.create` | `jobUser` not granted | Step 7, first command |
 | `Access Denied: Dataset ff-python-api:pbp_bronze` | `dataEditor` not granted on that dataset | Step 7, second block |
+| `Access Denied: Table ff-python-api:nflreadpy.players` / `bigquery.tables.get denied` | `nflreadpy` predates this grant list — the SA was scoped to `pbp_*` only | Re-run step 7's second block, or `./scripts/setup_wif.sh` |
 | `id-token: write` / `Missing OIDC token` | The workflow lacks the permission block | Already set in the workflows; only an issue if you add a new one |
 | Provider or pool `already exists` after you deleted it | Deleted pools and providers are soft-deleted for 30 days and the ID stays reserved | `gcloud iam workload-identity-pools providers undelete`, or use a new ID |
 

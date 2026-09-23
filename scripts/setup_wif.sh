@@ -18,7 +18,11 @@ GITHUB_REPO="${GITHUB_REPO:-nashstallings/fantasy_football}"
 POOL_ID="${POOL_ID:-github-actions}"
 PROVIDER_ID="${PROVIDER_ID:-github}"
 SA_NAME="${SA_NAME:-gh-actions-pbp}"
-DATASETS=(pbp_bronze pbp_silver pbp_gold)
+
+# Both pipelines write from Actions now, so both sets of datasets are granted.
+# `nflreadpy` was deliberately excluded while it was Colab-only -- see the note
+# on the grant below for what changed and what it costs.
+DATASETS=(pbp_bronze pbp_silver pbp_gold nflreadpy)
 
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -113,9 +117,20 @@ for ds in "${DATASETS[@]}"; do
     bq --project_id="${PROJECT_ID}" mk --dataset --location=US "${PROJECT_ID}:${ds}"
   fi
 
-  # Scoped to this dataset only -- deliberately NOT project-wide dataEditor,
-  # so a compromised workflow token cannot touch the `nflreadpy` dataset that
-  # the other pipeline owns.
+  # Scoped per dataset -- deliberately NOT project-wide dataEditor.
+  #
+  # This list used to exclude `nflreadpy` on the grounds that a compromised
+  # workflow token should not reach the dataset the other pipeline owned. That
+  # held while `nflreadpy` was written only from Colab, under a human's
+  # credentials. It is now written by nfl_data_weekly.yml on this same token,
+  # so the exclusion would just mean the job cannot run.
+  #
+  # What the widening actually costs: every table in `nflreadpy` and `pbp_*`
+  # is rebuilt from public nflverse files in about a minute, so the worst a
+  # stolen token does here is force a re-run. `dynasty_tycoon` is the dataset
+  # with irreplaceable state -- the Sleeper-derived auction values -- and it is
+  # deliberately still absent from this list. Keep it that way: nothing in
+  # Actions writes it, and `run_auction_values()` stays a Colab-only call.
   bq --project_id="${PROJECT_ID}" query --use_legacy_sql=false \
     "GRANT \`roles/bigquery.dataEditor\` ON SCHEMA \`${PROJECT_ID}.${ds}\`
      TO \"serviceAccount:${SA_EMAIL}\"" >/dev/null
