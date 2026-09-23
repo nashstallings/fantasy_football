@@ -18,8 +18,15 @@ FANTASY_POSITIONS = ["QB", "RB", "WR", "TE"]
 # 2012 file despite the range this used to claim.
 YPRR_FIRST_SEASON = 2013
 
-# How many seasons the raw nflreadpy tables carry. See raw_seasons().
-RAW_SEASON_HISTORY = 2
+# How many seasons the raw nflreadpy tables carry, counting the current one.
+# See raw_seasons().
+#
+# Four, because this pipeline is the sole writer of these tables and the
+# downstream consumer needs four. sleeper_dynasty_overview's refresh scripts
+# use SEASONS_BACK = 4 -- `WHERE season > MAX(season) - 4` -- so a narrower
+# window here silently starves the player cards in that dashboard rather than
+# failing anything. If that consumer's window changes, this has to move with it.
+RAW_SEASON_HISTORY = 4
 
 SEASON_ENV_VAR = "NFL_DATA_SEASON"
 

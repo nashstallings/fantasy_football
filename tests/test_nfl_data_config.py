@@ -43,7 +43,27 @@ def test_raw_seasons_keeps_the_previous_season(monkeypatch):
     for a Week 1 stub."""
     monkeypatch.delenv(config.SEASON_ENV_VAR, raising=False)
     monkeypatch.setattr(config.nfl, "get_current_season", lambda *a, **k: 2026)
-    assert config.raw_seasons() == [2025, 2026]
+    assert config.raw_seasons() == [2023, 2024, 2025, 2026]
+
+
+def test_raw_window_covers_what_the_dashboard_asks_for(monkeypatch):
+    """sleeper_dynasty_overview queries `season > MAX(season) - 4`. The window
+    written here has to be at least that wide or those rows simply aren't in
+    the table to be found -- which reads downstream as missing data, not as a
+    misconfiguration.
+
+    Pinned as a test because the failure is silent at every layer: the write
+    succeeds, the read succeeds, and the dashboard just shows fewer seasons.
+    """
+    DASHBOARD_SEASONS_BACK = 4
+    monkeypatch.delenv(config.SEASON_ENV_VAR, raising=False)
+    monkeypatch.setattr(config.nfl, "get_current_season", lambda *a, **k: 2026)
+
+    window = config.raw_seasons()
+    assert len(window) >= DASHBOARD_SEASONS_BACK
+    # the exact predicate the consumer runs, against the seasons we publish
+    wanted = [s for s in window if s > max(window) - DASHBOARD_SEASONS_BACK]
+    assert wanted == [2023, 2024, 2025, 2026]
 
 
 def test_yprr_seasons_runs_from_first_to_current(monkeypatch):

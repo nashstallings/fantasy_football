@@ -57,11 +57,29 @@ just means nobody has to remember.
 
 All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
 
-The four weekly tables carry a **two-season window** (`config.raw_seasons()`),
+The four weekly tables carry a **four-season window** (`config.raw_seasons()`),
 not just the current one. They're written with `if_exists="replace"`, so a
 single-season window would mean the first run after a rollover swaps a finished
 season for a Week 1 stub and the old one is gone. `yprr_proxy` is independent of
 that window — it always spans 2013 through the current season.
+
+### This pipeline is the only writer of `nflreadpy.*`
+
+Every table above is written `if_exists="replace"`. Two processes replacing the
+same table is not a merge — whichever ran last wins, silently, and the other's
+data is simply gone until it runs again.
+
+`contract_dynasty_draft/nfl_data_refresh.py` used to write these same five
+tables on a daily cron, with the seasons hardcoded (`range(2022, 2026)`, and a
+bare `2025` for the rest). It was removed when this job took over. If you find
+another writer, retire it rather than trying to make the two agree.
+
+Known **consumers**, which read and must not write:
+
+| Repo | Reads |
+|---|---|
+| `sleeper_dynasty_overview` | `player_stats`, `snap_counts`, `players` via its `scripts/refresh_*.py`, which write JSON the static app loads. Uses `SEASONS_BACK = 4` — the reason `RAW_SEASON_HISTORY` is 4. |
+| `contract_dynasty_draft` | `players`, `player_stats`, `snap_counts`, `ff_opportunity` via its `bq-proxy`. |
 
 `player_auction_values` (`dynasty_tycoon` dataset, Sleeper + nflreadpy, age-adjusted/superflex-aware dynasty auction values priced to a $3000/12-team budget) is **not** run by default — call `nfl_data.run_auction_values()` explicitly (see notebook step 6) if you want it.
 
