@@ -17,6 +17,20 @@ from .yprr import TABLE_DESCRIPTION as YPRR_TABLE_DESCRIPTION
 from .yprr import build_yprr_table
 
 
+def run_players(write_to_bq: bool = True) -> pd.DataFrame:
+    """Refresh only the `players` table.
+
+    Split out so it can run daily while everything else stays weekly. Rosters
+    move every day -- signings, cuts, practice-squad elevations -- but stats
+    only move after games, so rebuilding four seasons of stats nightly would
+    buy nothing. `players` has no season window, so this is the whole table.
+    """
+    players = fetch_players()
+    if write_to_bq:
+        write_tables({"players": players}, config.PROJECT_ID, config.NFLREADPY_DATASET_ID)
+    return players
+
+
 def run_nflreadpy_tables(
     seasons: int | list[int] | None = None, write_to_bq: bool = True
 ) -> dict[str, pd.DataFrame]:

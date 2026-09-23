@@ -15,9 +15,14 @@ deliberate, for the same reasons as the play-by-play job:
   - There is nothing to gain from being clever: the whole build is under a
     minute.
 
+The one exception is `players`, which also runs daily on its own (see
+--players-only and nfl_data_players_daily.yml). Rosters move every day; stats
+only move after games.
+
     python jobs/run_nfl_data.py                      # current window
     python jobs/run_nfl_data.py --seasons 2024 2025  # explicit
     python jobs/run_nfl_data.py --skip-yprr          # raw tables only
+    python jobs/run_nfl_data.py --players-only       # the daily roster refresh
 """
 
 from __future__ import annotations
@@ -67,6 +72,20 @@ def run(
     return 0
 
 
+def run_players_only(write_to_bq: bool = True) -> int:
+    print("nfl_data players refresh")
+    try:
+        players = pipeline.run_players(write_to_bq=write_to_bq)
+    except EmptyWriteRefused as exc:
+        # Same posture as the full run: an empty upstream file costs a day,
+        # not the table.
+        print(f"\n  {exc}")
+        print("  Nothing written. Tomorrow's run picks it up.")
+        return 0
+    print(f"  players: {len(players):,} rows")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -74,9 +93,18 @@ def main() -> int:
                    help="seasons for the raw tables; defaults to config.raw_seasons()")
     p.add_argument("--skip-yprr", action="store_true",
                    help="refresh the raw tables only")
+    p.add_argument("--players-only", action="store_true",
+                   help="refresh only the players table (the daily job)")
     p.add_argument("--dry-run", action="store_true",
                    help="build everything but write nothing (no GCP auth needed)")
     a = p.parse_args()
+
+    if a.players_only:
+        # players has no season window, so these would be silently ignored.
+        # Better to say so than to let someone think they scoped the run.
+        if a.seasons or a.skip_yprr:
+            p.error("--players-only cannot be combined with --seasons or --skip-yprr")
+        return run_players_only(write_to_bq=not a.dry_run)
     return run(a.seasons, a.skip_yprr, write_to_bq=not a.dry_run)
 
 

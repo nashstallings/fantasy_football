@@ -30,6 +30,12 @@ python jobs/run_nfl_data.py --dry-run     # builds everything, writes nothing
 python jobs/run_nfl_data.py               # needs GCP credentials
 ```
 
+**`players` also refreshes daily** at 12:37 UTC, via
+`.github/workflows/nfl_data_players_daily.yml` (`--players-only`). Rosters move
+every day — signings, cuts, practice-squad elevations — while stats only move
+after games, so only that one table runs nightly. The two workflows share a
+concurrency group, so they queue rather than race.
+
 **The season is not configured anywhere.** `config.current_season()` reads it
 from nflreadpy at run time, so the rollover needs no commit. Override with
 `NFL_DATA_SEASON` for a backfill.
