@@ -1,0 +1,61 @@
+name: NFL Data Players Daily
+
+on:
+  schedule:
+    # 12:37 UTC daily. nflverse rebuilds its roster files overnight US time;
+    # this is comfortably after that lands, so yesterday's signings and cuts
+    # are in today's run. Off the hour to avoid the :00 cron pile-up.
+    #
+    # Only `players` refreshes here. Stats move after games, rosters move every
+    # day, so the rest stays on NFL Data Weekly Refresh (Tuesdays). On Tuesdays
+    # both jobs write `players`; that is redundant, not a collision -- it is the
+    # same code producing the same table.
+    - cron: '37 12 * * *'
+  workflow_dispatch: {}
+
+# The same group as nfl_data_weekly.yml, deliberately. Both write `players`
+# with if_exists="replace"; sharing the group queues one behind the other
+# instead of letting them race.
+concurrency:
+  group: nfl-data-write
+  cancel-in-progress: false
+
+jobs:
+  refresh-players:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write    # required for Workload Identity Federation
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Check GCP configuration
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.GCP_WIF_PROVIDER }}" ] || [ -z "${{ secrets.GCP_SERVICE_ACCOUNT }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GCP_WIF_PROVIDER / GCP_SERVICE_ACCOUNT not set - skipping. Configure Workload Identity Federation and add the repo secrets to enable."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: google-github-actions/auth@v3
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Refresh players
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+        run: python jobs/run_nfl_data.py --players-only
