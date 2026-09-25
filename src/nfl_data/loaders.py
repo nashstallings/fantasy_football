@@ -74,3 +74,23 @@ def fetch_ff_opportunity(seasons: int | list[int]) -> pd.DataFrame:
         seasons=seasons, stat_type="weekly", model_version="latest"
     ).to_pandas()
     return _filter_positions(opportunity)
+
+
+def fetch_schedules(seasons: int | list[int]) -> pd.DataFrame:
+    """Every game -- played or not -- for `seasons`, plus the following season
+    once nflverse publishes it.
+
+    The one game-level table here, so no position filter. It carries future
+    games too, which is what makes it useful: sleeper_dynasty_overview derives
+    each team's bye as the one regular-season week it has no game, and that
+    only works against a complete schedule.
+
+    The extra season is for the offseason. current_season() doesn't roll over
+    until September, but the next schedule comes out in May, and byes for the
+    season about to be drafted for are the ones worth having. Asking for a
+    season that isn't published yet returns no rows rather than raising, so
+    requesting it unconditionally is safe -- it just appears once it exists.
+    """
+    wanted = [seasons] if isinstance(seasons, int) else list(seasons)
+    wanted = sorted(set(wanted) | {max(wanted) + 1})
+    return nfl.load_schedules(seasons=wanted).to_pandas()

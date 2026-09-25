@@ -60,3 +60,40 @@ def test_non_fantasy_positions_are_dropped_before_ranking(monkeypatch):
     out = loaders.fetch_player_stats(2026)
     assert list(out["player_id"]) == ["a", "b"]
     assert list(out["weekly_positional_rank"]) == [1.0, 2.0]
+
+
+# --- schedules --------------------------------------------------------------
+
+
+def test_schedules_also_requests_the_next_season(monkeypatch):
+    """The next schedule is published in May, months before current_season()
+    rolls over. Asking for it unconditionally is what makes offseason byes
+    point at the season about to be drafted for."""
+    asked = {}
+
+    def fake(seasons):
+        asked["seasons"] = seasons
+        return pl.DataFrame({"season": seasons, "game_type": ["REG"] * len(seasons)})
+
+    monkeypatch.setattr(loaders.nfl, "load_schedules", fake)
+    loaders.fetch_schedules([2023, 2024, 2025, 2026])
+    assert asked["seasons"] == [2023, 2024, 2025, 2026, 2027]
+
+
+def test_schedules_accepts_a_single_season(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(loaders.nfl, "load_schedules",
+                        lambda seasons: asked.setdefault("s", seasons) and pl.DataFrame({"season": seasons}))
+    loaders.fetch_schedules(2026)
+    assert asked["s"] == [2026, 2027]
+
+
+def test_schedules_are_not_position_filtered(monkeypatch):
+    """Games, not players -- there is no position column to filter on, and
+    dropping rows here would invent byes downstream."""
+    games = pl.DataFrame({
+        "season": [2026, 2026], "game_type": ["REG", "REG"], "week": [1, 2],
+        "home_team": ["BUF", "KC"], "away_team": ["MIA", "DEN"],
+    })
+    monkeypatch.setattr(loaders.nfl, "load_schedules", lambda seasons: games)
+    assert len(loaders.fetch_schedules(2026)) == 2

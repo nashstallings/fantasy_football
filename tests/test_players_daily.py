@@ -28,7 +28,8 @@ def writes(monkeypatch):
         raise AssertionError("the daily players run must not load stats tables")
 
     for name in ("fetch_player_stats", "fetch_snap_counts",
-                 "fetch_nextgen_stats", "fetch_ff_opportunity"):
+                 "fetch_nextgen_stats", "fetch_ff_opportunity",
+                 "fetch_schedules"):
         monkeypatch.setattr(pipeline, name, boom)
     return written
 

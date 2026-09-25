@@ -59,11 +59,12 @@ just means nobody has to remember.
 | `snap_counts` | nflreadpy | Weekly snap share by player |
 | `nextgen_stats` | nflreadpy | Passing/receiving/rushing NGS, stacked long |
 | `ff_opportunity` | nflreadpy | Weekly opportunity/target-share model output |
+| `schedules` | nflreadpy | Every game, played or not, for the window **plus next season once published**. Game-level, so not position-filtered. `sleeper_dynasty_overview` derives bye weeks from it. |
 | `yprr_proxy` | derived (nflreadpy) | YPRR/target rate. **Always filter on `season_type`** — REG and POST are separate rows. Check `routes_method`: `participation_on_field` counts actual on-field dropbacks (2016+), `snap_share_estimate` is the older proxy. See `yprr.py` for caveats before trusting the numbers |
 
-All of the above are filtered to `QB`/`RB`/`WR`/`TE` and replaced wholesale on each run.
+All of the player tables above are filtered to `QB`/`RB`/`WR`/`TE`, and every table is replaced wholesale on each run.
 
-The four weekly tables carry a **four-season window** (`config.raw_seasons()`),
+The weekly tables carry a **four-season window** (`config.raw_seasons()`),
 not just the current one. They're written with `if_exists="replace"`, so a
 single-season window would mean the first run after a rollover swaps a finished
 season for a Week 1 stub and the old one is gone. `yprr_proxy` is independent of
@@ -84,7 +85,7 @@ Known **consumers**, which read and must not write:
 
 | Repo | Reads |
 |---|---|
-| `sleeper_dynasty_overview` | `player_stats`, `snap_counts`, `players` via its `scripts/refresh_*.py`, which write JSON the static app loads. Uses `SEASONS_BACK = 4` — the reason `RAW_SEASON_HISTORY` is 4. |
+| `sleeper_dynasty_overview` | `player_stats`, `snap_counts`, `players`, `schedules` via its `scripts/refresh_*.py`, which write JSON the static app loads. Uses `SEASONS_BACK = 4` — the reason `RAW_SEASON_HISTORY` is 4. |
 | `contract_dynasty_draft` | `players`, `player_stats`, `snap_counts`, `ff_opportunity` via its `bq-proxy`. |
 
 `player_auction_values` (`dynasty_tycoon` dataset, Sleeper + nflreadpy, age-adjusted/superflex-aware dynasty auction values priced to a $3000/12-team budget) is **not** run by default — call `nfl_data.run_auction_values()` explicitly (see notebook step 6) if you want it.
