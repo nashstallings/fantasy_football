@@ -10,7 +10,14 @@ import polars as pl
 from . import config
 from .bigquery_io import set_table_description, write_tables
 from .id_matching import resolve_gsis_ids
-from .loaders import fetch_ff_opportunity, fetch_nextgen_stats, fetch_player_stats, fetch_players, fetch_snap_counts
+from .loaders import (
+    fetch_ff_opportunity,
+    fetch_nextgen_stats,
+    fetch_player_stats,
+    fetch_players,
+    fetch_schedules,
+    fetch_snap_counts,
+)
 from .sleeper_client import fetch_player_db, fetch_season_projections
 from .valuation import build_auction_values, build_projection_table
 from .yprr import TABLE_DESCRIPTION as YPRR_TABLE_DESCRIPTION
@@ -47,6 +54,8 @@ def run_nflreadpy_tables(
         "snap_counts": fetch_snap_counts(seasons),
         "nextgen_stats": fetch_nextgen_stats(seasons),
         "ff_opportunity": fetch_ff_opportunity(seasons),
+        # Includes next season once published -- see fetch_schedules.
+        "schedules": fetch_schedules(seasons),
     }
     if write_to_bq:
         write_tables(tables, config.PROJECT_ID, config.NFLREADPY_DATASET_ID)
